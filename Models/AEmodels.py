@@ -14,8 +14,8 @@ import torch.nn.functional as F
 from torch import Tensor
 from numpy.matlib import repmat
 
-from models_init import *
-from NetBlocks import _CNNBlock,_UnCNNLayer
+from .models_init import *
+from .NetBlocks import _CNNBlock,_UnCNNLayer
 
 
 

@@ -9,366 +9,175 @@ import torch
 import cv2
 
 from torchvision import transforms
-import torchvision.io
-import torchvision.transforms as T
-import torchvision
 
 from tqdm import tqdm
 
 from typing import List, Optional, Tuple, Literal
+from enum import Enum
 
-default_path = "/data/users/tockier/medical_dataset"
-config_path = "config.yml"
+DEFAULT_PATH = "/fhome/vlia/HelicoDataSet/"
+IMAGE_NET_MEAN = [0.485, 0.456, 0.406]
+IMAGE_NET_STD = [0.229, 0.224, 0.225]
 
-def ensure_dataset_path_yaml() -> int:
-	"""
-	Ensures that config.yml contains the dataset path.
-	:return: 0 if path is valid, 1 if path is not present, 2 if path is invalid
-	"""
-	# Check config.yml exists
-	config = {}
+def delete_alpha_channel(image: torch.Tensor) -> torch.Tensor:
+    if image.shape[0] == 4:
+        image = image[:3, :, :]
+    return image
 
-	# Check if config.yml exists
-	if not os.path.exists(config_path):
-		config["dataset_path"] = default_path
-		with open(config_path, "w") as file:
-			yaml.safe_dump(config, file)
-		return 1
+class Patients(Enum):
+    LOW = "BAIXA"
+    HIGH = "ALTA"
+    NEGATIVE = "NEGATIVA"
 
-	# Load existing config
-	try:
-		with open(config_path, "r") as file:
-			config = yaml.safe_load(file) or {}
-	except yaml.YAMLError as e:
-		raise ValueError(f"Error parsing {config_path}: {e}")
+def cropped_collator(batch: list[dict]) -> dict[str, Any]:
+    LABEL_MAP = {"NEGATIVA": 0, "BAIXA": 1, "ALTA": 2}
 
-	# Check if 'dataset_path' exists in config
-	if "dataset_path" not in config:
-		config["dataset_path"] = default_path
-		with open(config_path, "w") as file:
-			yaml.safe_dump(config, file)
-		return 1
+    images = [item["image"] for item in batch]
+    labels_str = [item["label"] for item in batch]
 
-	# Check if the dataset path exists on the filesystem
-	if not os.path.exists(config["dataset_path"]):
-		return 2
+    batched_images = torch.stack(images, dim=0)
 
-	return 0
+    try:
+        labels_int = [LABEL_MAP[label] for label in labels_str]
+    except KeyError as e:
+        print(f"Error: Unknown label encountered in batch: {e}. Available labels: {list(LABEL_MAP.keys())}")
+        raise
 
-def listdir(path: str, filter: str = None, extension: str = None) -> list:
-	"""
-	Returns a list of directories in the given path.
-	If a filter is provided, only directories that contain the filter in their name will be returned.
+    batched_labels = torch.tensor(labels_int, dtype=torch.long)
 
-	:param path: Path to the directory
-	:param filter: Filter to apply to the directories
-	:return: List of directory names as strings
-	"""
-	directories = os.listdir(path)
-	if filter is not None:
-		directories = [directory for directory in directories if filter in directory]
-	if extension is not None:
-		directories = [directory for directory in directories if directory.endswith(extension)]
-	return directories
+    return {"image": batched_images, "label": batched_labels}
 
-def transform_image(image: Image, size: tuple) -> Image:
-	transformations = transforms.Compose([
-		transforms.Resize(size),
-		transforms.ToTensor(),
-		transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-	])
-	return transformations(image)
-
-def get_cropped_patient_ids(cropped_path: str) -> List[str]:
-	# Get all the patient IDs from the cropped path
-	patient_ids = listdir(cropped_path)
-	patient_ids = [patient_id[:-2] for patient_id in patient_ids]
-	return patient_ids
-
-def get_negative_patient_ids(csv_file_path: str) -> List[str]:
-	# Gets all the patient IDs with a negative diagnosis
-	data = pd.read_csv(csv_file_path)
-	negative_diagnosis = data[data["DENSITAT"] == "NEGATIVA"]
-	patient_ids = negative_diagnosis["CODI"].astype(str).tolist()
-	return patient_ids
-
-def get_classification_patient_ids(excel_file_path: str) -> List[str]:
-	# Gets all the patient IDs from the excel file
-	data = pd.read_excel(excel_file_path)
-	patient_ids = data["Pat_ID"].astype(str).tolist()
-	unique_patient_ids = sorted(list(set(patient_ids)))
-	return unique_patient_ids
-
-def get_diagnosis_patient_ids(csv_file_path: str) -> List[str]:
-	# Gets all the patient IDs except with diagnosis BAIXA
-	data = pd.read_csv(csv_file_path)
-	negative_diagnosis = data[data["DENSITAT"] != "BAIXA"]
-	patient_ids = negative_diagnosis["CODI"].astype(str).tolist()
-	return patient_ids
-
-def postprocess(tensor, p=4):
-	if tensor.dim() == 4:
-		tensor = tensor.squeeze(0)
-	tensor = tensor.cpu()
-	tensor = tensor * 0.5 + 0.5
-	tensor = tensor * 255
-	tensor = tensor.clamp(0, 255)
-	tensor = tensor.type(torch.uint8)
-	tensor = tensor.permute(1, 2, 0).numpy()
-	if p > 0:
-		# center crop
-		tensor = tensor[p:256-p, p:256-p, :]
-		# padd again with blue color
-		tensor = cv2.copyMakeBorder(tensor, p, p, p, p, cv2.BORDER_CONSTANT, value=[228, 232, 248])
-	return tensor
-
-def check_red_fraction(orig, reco):
-	# Convert the images from RGB to HSV
-	input_image_hsv = cv2.cvtColor(orig, cv2.COLOR_RGB2HSV)
-	reconstructed_image_hsv = cv2.cvtColor(reco, cv2.COLOR_RGB2HSV)
-
-	# Define the hue range for red pixels as suggested
-	# For -20 to 0 in HSV, which corresponds to hues 160-180 in OpenCV's scale
-	input_lower_hsv1 = np.array([340, 0, 0])
-	input_upper_hsv1 = np.array([360, 255, 255])
-
-	# For 0 to 20 in HSV
-	input_lower_hsv2 = np.array([0, 0, 0])
-	input_upper_hsv2 = np.array([20, 255, 255])
-
-	# Apply masks to the original image
-	mask_ori1 = cv2.inRange(input_image_hsv, input_lower_hsv1, input_upper_hsv1)
-	mask_ori2 = cv2.inRange(input_image_hsv, input_lower_hsv2, input_upper_hsv2)
-	mask_ori = cv2.bitwise_or(mask_ori1, mask_ori2)
-	count_red_ori = np.count_nonzero(mask_ori)
-
-	# Apply masks to the reconstructed image
-	mask_rec1 = cv2.inRange(reconstructed_image_hsv, input_lower_hsv1, input_upper_hsv1)
-	mask_rec2 = cv2.inRange(reconstructed_image_hsv, input_lower_hsv2, input_upper_hsv2)
-	mask_rec = cv2.bitwise_or(mask_rec1, mask_rec2)
-	count_red_rec = np.count_nonzero(mask_rec)
-
-	# Calculate the fraction of red pixels
-	F_red = count_red_ori / (count_red_rec+1)
-
-	return F_red
-
-
-class HelicoDatasetAnomalyDetection(Dataset):
-    def __init__(
-            self,
-            patient_id: bool=False,
-            split: Literal["train", "val"]="train",
-            train_ratio: float=0.8,
-            random_seed: int=42,
-            patient_ids_to_include: Optional[List[str]]=None
-    ):
+class HelicoCropped(Dataset):
+    def __init__(self, target_id = "NEGATIVA", load_ram: bool=False):
         super().__init__()
-        # Initialize paths
-        path_error = ensure_dataset_path_yaml()
-        if path_error == 1:
-            print(f"Dataset path not found in config.yml. Defaulting to {default_path}")
-            if not os.path.exists(default_path):
-                raise FileNotFoundError(f"Default path {default_path} does not exist. Specify a valid path in config.yml.")
-        elif path_error == 2:
-            current_path = yaml.safe_load(open("config.yml", "r"))["dataset_path"]
-            raise FileNotFoundError(f"Dataset path {current_path} does not exist. Specify a valid path in config.yml.")
-        
-        self.dataset_path = yaml.safe_load(open("config.yml", "r"))["dataset_path"]
-        self.csv_file_path = os.path.join(self.dataset_path, "PatientDiagnosis.csv")
-        self.cropped_path = os.path.join(self.dataset_path, "CrossValidation", "Cropped")
-        self.patient_id = patient_id
+        xlsx_path = os.path.join(DEFAULT_PATH, "PatientDiagnosis.csv")
+        data = pd.read_csv(xlsx_path)
 
-        # Find all the negative diagnosis directories
-        paths_negatives, patients_ids = self.get_negative_diagnosis_directories(self.csv_file_path)
+        patient_ids = data["CODI"].astype(str).to_numpy()
+        labels = data["DENSITAT"].astype(str).to_numpy()
 
-        # Split the data into train and test sets
-        if patient_ids_to_include is None:
-            patient_ids_to_include = get_negative_patient_ids(self.csv_file_path)
+        match target_id:
+            case "NEGATIVA":
+                negative_ids = data[data["DENSITAT"] == "NEGATIVA"]["CODI"].astype(str).to_numpy()
+                selected_indices = np.where(labels == "NEGATIVA")[0]
+            case "BAIXA":
+                low_ids = data[data["DENSITAT"] == "BAIXA"]["CODI"].astype(str).to_numpy()
+                selected_indices = np.where(labels == "BAIXA")[0]
+            case "ALTA":
+                high_ids = data[data["DENSITAT"] == "ALTA"]["CODI"].astype(str).to_numpy()
+                selected_indices = np.where(labels == "ALTA")[0]
+            case _:
+                raise ValueError(f"Invalid target_id: {target_id}. Must be one of 'NEGATIVA', 'BAIXA', 'ALTA'.")
 
-        rng = np.random.RandomState(random_seed)
-        patient_indices = rng.permutation(len(patient_ids_to_include))
-        train_size = int(len(patient_ids_to_include) * train_ratio)
-        
-        train_indices = patient_indices[:train_size]
-        test_indices = patient_indices[train_size:]
+        images_path = os.path.join(DEFAULT_PATH, "CrossValidation", "Cropped")
+        images_subfolders = os.listdir(images_path)
 
-        if split == "train":
-            patient_ids_to_include = [patient_ids_to_include[i] for i in train_indices]
-        else:
-            patient_ids_to_include = [patient_ids_to_include[i] for i in test_indices]
+        self.samples = []
+        for images_subfolder in images_subfolders:
+            patient_id = images_subfolder.split("_")[0]
 
-        # Filter by patient_ids_to_include if provided
-        paths = [os.path.join(self.cropped_path, filename) for filename in listdir(self.cropped_path)]
-        filtered_paths_negatives = []
-        filtered_patients_ids = []
-        for path_negative, pid in zip(paths_negatives, patients_ids):
-            if pid in patient_ids_to_include:
-                for path in paths:
-                    if path_negative == path[:-2]:
-                        filtered_paths_negatives.append(path)
-                        filtered_patients_ids.append(os.path.basename(path)[:-2])
-                        break
-        paths_negatives = filtered_paths_negatives
-        self.patients_ids = filtered_patients_ids
+            if patient_id in patient_ids[selected_indices]:
+                # store the image paths and labels
+                image_filenames = os.listdir(os.path.join(images_path, images_subfolder))
+                for image_filename in image_filenames:
+                    image_path = os.path.join(images_path, images_subfolder, image_filename)
 
-        # Retrieve all the patches from the directories
-        self.paths_patches = []
-        self.patient_ids_patches = []
-        for i, directory in enumerate(paths_negatives):
-            patches_names = listdir(directory, extension=".png")
-            patches_paths = [os.path.join(directory, patches_name) for patches_name in patches_names]
-            self.paths_patches.extend(patches_paths)
-            self.patient_ids_patches.extend([self.patients_ids[i]] * len(patches_paths))
+                    # ensure that is a png image
+                    if not image_filename.lower().endswith('.png'):
+                        continue
 
-        # --- NEW: Load all images into RAM ---
-        print(f"Found {len(self.paths_patches)} patches for split '{split}'. Caching into RAM...")
-        
-        self.image_cache = []
-        
-        # Define the transformations: Resize and scale to [0, 1] float
-        self.transform = T.Compose([
-            T.Resize((256, 256), antialias=True),
-            T.ConvertImageDtype(torch.float32)  # Scales to [0, 1]
+                    label = labels[np.where(patient_ids == patient_id)[0][0]]
+                    self.samples.append((image_path, label, patient_id))
+
+        self.load_ram = load_ram
+
+        self.transform = transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.Normalize(mean=IMAGE_NET_MEAN, std=IMAGE_NET_STD)
         ])
 
-        for path in tqdm(self.paths_patches, desc="Loading images"):
-            try:
-                # Read image directly to a tensor
-                image_tensor = torchvision.io.read_image(path)
-                
-                # Handle RGBA images by dropping the alpha channel
-                if image_tensor.shape[0] > 3:
-                    image_tensor = image_tensor[:3, :, :]
-                
-                # Apply resize and type conversion
-                image_tensor = self.transform(image_tensor)
-                
-                self.image_cache.append(image_tensor)
-            except Exception as e:
-                print(f"Warning: Failed to load {path}. Error: {e}. Skipping.")
-        
-        print(f"Successfully cached {len(self.image_cache)} images into RAM.")
-
-        # Clean up paths list to save memory
-        del self.paths_patches
-
-    def get_negative_diagnosis_directories(self, csv_path: str) -> Tuple[List[str], List[str]]:
-        data = pd.read_csv(csv_path)
-
-        # Filter rows where the DENSITAT is "NEGATIVA"
-        negative_diagnosis = data[data["DENSITAT"] == "NEGATIVA"]
-
-        # Create directory paths and patient IDs based on the CODI values
-        directories = [
-            os.path.join(self.cropped_path, str(codi))
-            for codi in negative_diagnosis["CODI"]
-        ]
-        patient_ids = negative_diagnosis["CODI"].astype(str).tolist()
-
-        return directories, patient_ids
+        if self.load_ram:
+            self.ram_data = []
+            for image_path, label, pid in tqdm(self.samples, desc="Loading data into RAM"):
+                image = Image.open(image_path)
+                image = torch.tensor(np.array(image)).float().permute(2, 0, 1)
+                image = image.permute(2, 0, 1)
+                image = delete_alpha_channel(image)
+                image = self.transform(image) / 255.0
+                self.ram_data.append((image, label, pid))
 
     def __getitem__(self, index) -> Any:
-        image = self.image_cache[index]
-        
-        if self.patient_id:
-            return image, self.patient_ids_patches[index]  # (image, patient_id)
+        if self.load_ram:
+            image, label, _ = self.ram_data[index]
         else:
-            return image  # (image,)
+            image_path, label, _ = self.samples[index]
+            image = Image.open(image_path)
+            image = torch.tensor(np.array(image)).float().permute(2, 0, 1)
+            image = delete_alpha_channel(image)
+            image = self.transform(image) / 255.0
+
+        return {"image": image, "label": label}
 
     def __len__(self) -> int:
-        return len(self.image_cache)
+        return len(self.samples)
 
+class HelicoAnnotated(Dataset):
+    def __init__(self, patient_id: bool=False, only_negative: bool=False, load_ram: bool=False):
+        xlsx_path = os.path.join(DEFAULT_PATH, "HP_WSI-CoordAnnotatedAllPatches.xlsx")
+        data = pd.read_excel(xlsx_path)
+        patient_ids = data["Pat_ID"].astype(str).to_numpy()
+        section_ids = data["Section_ID"].astype(str).to_numpy()
+        window_ids = data["Window_ID"].astype(str).to_numpy()
+        labels = data["Presence"].astype(int).to_numpy()
 
-class HelicoDatasetPatientDiagnosis(Dataset):
-	def __init__(
-			self,
-			split: Literal["train", "val", "test"]="train",
-			train_ratio: float=0.8, # only for train-val, test is always the whole Holdout
-			random_seed: int=42,
-			patient_ids_to_include: Optional[List[str]]=None
-	):
-		# Initialize paths
-		path_error = ensure_dataset_path_yaml()
-		if path_error == 1:
-			print(f"Dataset path not found in config.yml. Defaulting to {default_path}")
-			if not os.path.exists(default_path):
-				raise FileNotFoundError(f"Default path {default_path} does not exist. Specify a valid path in config.yml.")
-		elif path_error == 2:
-			current_path = yaml.safe_load(open("config.yml", "r"))["dataset_path"]
-			raise FileNotFoundError(f"Dataset path {current_path} does not exist. Specify a valid path in config.yml.")
-		
-		self.dataset_path = yaml.safe_load(open("config.yml", "r"))["dataset_path"]
-		self.csv_file_path = os.path.join(self.dataset_path, "PatientDiagnosis.csv")
-		self.cropped_path = os.path.join(self.dataset_path, "CrossValidation", "Cropped")
-		self.holdout_path = os.path.join(self.dataset_path, "HoldOut")
-		if split == "test":
-			data_path = self.holdout_path
-			train_ratio = 0
-		else:
-			data_path = self.cropped_path
+        if only_negative:
+            # filter only negative samples
+            indices = np.where(labels == -1)[0]
+            patient_ids = patient_ids[indices]
+            section_ids = section_ids[indices]
+            window_ids = window_ids[indices]
+            labels = labels[indices]
 
-		# Load the CSV file
-		csv = pd.read_csv(self.csv_file_path)
-		patients_ids = csv["CODI"].to_numpy()
-		patients_diagnosis = csv["DENSITAT"].to_numpy()
-		# remove BAIXA
-		patients_ids = patients_ids[patients_diagnosis != "BAIXA"]
-		patients_diagnosis = patients_diagnosis[patients_diagnosis != "BAIXA"]
-		# patient_diagnosis to 0 or 1
-		patients_diagnosis = [0 if diagnosis == "NEGATIVA" else 1 for diagnosis in patients_diagnosis]
-		# Build a mapping from patient_id to diagnosis
-		patient_id_to_diagnosis = dict(zip(patients_ids, patients_diagnosis))
+            print(f"Number of negative samples: {len(labels)}")
+        else:
+            print(f"Total number of samples: {len(labels)}")
 
-		if patient_ids_to_include is None:
-			patient_ids_to_include = patients_ids.tolist()
+        self.samples = []  # (image_path, label, patient_id)
+        for pid, sid, wid, label in zip(patient_ids, section_ids, window_ids, labels):
 
-		# Split into train and test sets
-		train_size = int(len(patient_ids_to_include) * train_ratio)
-		train_indices = np.random.RandomState(random_seed).choice(len(patient_ids_to_include), train_size, replace=False)
-		test_indices = np.array([i for i in range(len(patient_ids_to_include)) if i not in train_indices])
-		if split == "train":
-			patient_ids_to_include = [patient_ids_to_include[i] for i in train_indices]
-		else:
-			patient_ids_to_include = [patient_ids_to_include[i] for i in test_indices]
+            split_ = wid.split("_")
+            if len(split_) > 1:
+                number = int(split_[0])
+                string = split_[1]
+                wid = f"{number:05d}_{string}"
+            else:
+                wid = f"{int(wid):05d}"
 
-		# Initialize empty lists to store valid patient data
-		valid_patient_ids = []
-		valid_patient_diagnosis = []
-		patient_paths = []
+            image_path = os.path.join(DEFAULT_PATH, "CrossValidation", "Annotated", f"{pid}_{sid}", f"{wid}.png")
+            self.samples.append((image_path, label, pid))
 
-		# Fetch all the patient directories and ensure alignment
-		for patient_directory in listdir(data_path):
-			for patient_id in patient_ids_to_include:
-				if patient_directory[:-2] == patient_id:
-					patient_paths.append(os.path.join(data_path, patient_directory))
-					valid_patient_ids.append(patient_id)
-					valid_patient_diagnosis.append(patient_id_to_diagnosis[patient_id])
+        self.load_ram = load_ram
+        if self.load_ram:
+            self.ram_data = []
+            for image_path, label, pid in tqdm(self.samples, desc="Loading data into RAM"):
+                image = torchvision.io.read_image(image_path)
+                image = delete_alpha_channel(image)
 
-		# Now, use valid_patient_ids and valid_patient_diagnosis for indexing
-		self.triplets = []  # (patch_path, patient_id, patient_diagnosis)
-		for i, patient_path in enumerate(patient_paths):
-			patches = listdir(patient_path, extension=".png")
-			for patch in patches:
-				self.triplets.append((os.path.join(patient_path, patch), valid_patient_ids[i], valid_patient_diagnosis[i]))
+                self.ram_data.append((image, label, pid))
 
-		# Print number of distinct patients
-		print(f"Number of distinct patients: {len(set(valid_patient_ids))}, {len(set(patient_ids_to_include))}, {len(set(patients_ids))}")
+    def __getitem__(self, index) -> Any:
+        if self.load_ram:
+            image, label, _ = self.ram_data[index]
+        else:
+            image_path, label, _ = self.samples[index]
+            image = torchvision.io.read_image(image_path)
+            image = delete_alpha_channel(image)
 
-	def __getitem__(self, index) -> Any:
-		path, patient_id, patient_diagnosis = self.triplets[index]
-		# returns (image, patient_id, patient_diagnosis)
-		return transform_image(Image.open(path).convert("RGB"), (256, 256)), patient_id, patient_diagnosis
-	
-	def __len__(self) -> int:
-		return len(self.triplets)
+        return image, label
 
+    def __len__(self) -> int:
+        return len(self.samples)
 
 if __name__ == "__main__":
-	dataset = HelicoDatasetAnomalyDetection()
-	print(len(dataset))
-	print(dataset[0])
-	# print(dataset[0][0].shape, dataset[0][1], dataset[0][2])
-	# ensure all iterations work
-	# for i in range(len(dataset)):
-	# 	dataset[i]
+    dataset = HelicoCropped("ALTA")
+    print(dataset[0])
