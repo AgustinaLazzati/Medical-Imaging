@@ -50,29 +50,6 @@ def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
     return model
     
 # ----------------------------
-# VISTO QUE NO HAY BOTTLENECK, hay que reducir dimensiones (y muchas) + normalizar
-# ----------------------------  
-class AEEmbeddingNet(nn.Module):
-    def __init__(self, ae_model, embedding_dim=128):
-        super(AEEmbeddingNet, self).__init__()
-
-        self.encoder = ae_model.encoder
-
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.LazyLinear(embedding_dim)
-
-    def forward(self, x):
-        feat = self.encoder(x)       # [B, C, H, W]
-
-        z = self.pool(feat)          # [B, C, 1, 1]
-        z = z.view(z.size(0), -1)    # [B, C]
-        z = self.fc(z)               # [B, embedding_dim]
-
-        z = F.normalize(z, p=2, dim=1)
-
-        return z
-
-# ----------------------------
 # 2. EXTRACT LATENT VECTORS
 # ----------------------------
 def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=None, force_label=None, embedding_dim=None):
@@ -115,22 +92,21 @@ def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=
                     raise AttributeError("Could not find 'encoder' or 'netEnc' in model.")
             
             # Flatten: [Batch, C, H, W] -> [Batch, Features]
-           
+            """
+            ANTES HACIAMOS SOLO FLATTEN 
             #print("Latent shape BEFORE flatten:", curr_latents.shape)
             curr_latents = curr_latents.view(curr_latents.size(0), -1)
             #print("Latent shape AFTER flatten:", curr_latents.shape)
             # Store latents
             latents_list.append(curr_latents.cpu().numpy())
-            
             """
-            AHORA AGREGUE LO DEL POOLING Y LO DE LAS DIMENSIONES
             # --- GLOBAL POOLING ---
             if curr_latents.ndim == 4:  # [B, C, H, W]
-                curr_latents = nn.functional.adaptive_avg_pool2d(curr_latents, (1, 1))
-            curr_latents = curr_latents.view(curr_latents.size(0), -1)  # [B, C]
+                curr_latents = F.adaptive_max_pool2d(curr_latents, output_size=(8, 8))  # [B, C, 8, 8]
+            curr_latents = curr_latents.view(curr_latents.size(0), -1)  # [B, C*8*8]
             
             latents_list.append(curr_latents.cpu().numpy())
-            """
+            
             # Store labels (Force specific label if provided, else use target)
             if force_label is not None:
                 # Create array of the forced label (e.g., all 0s or all 1s)
@@ -163,7 +139,8 @@ def plot_tsne(latents, labels, model_name="Model"):
     print(f"Computing t-SNE on {latents.shape[0]} samples with {latents.shape[1]} dimensions...")
     
     # Run TSNE (Updated args)
-    latents = PCA(n_components=50).fit_transform(latents) ###agregado 
+    #Se puede volver a probar reducir mas dimensiones 
+    #latents = PCA(n_components=50).fit_transform(latents) ###agregado 
     tsne = TSNE(n_components=2, random_state=42, perplexity=40, max_iter=1000, learning_rate='auto', init='pca')
     tsne_results = tsne.fit_transform(latents)
     
@@ -181,12 +158,12 @@ def plot_tsne(latents, labels, model_name="Model"):
     
     # Scatter Plot
     plt.scatter(tsne_results[benign_mask, 0], tsne_results[benign_mask, 1], 
-                c='green', label='Benign', alpha=0.6, s=15, edgecolors='none')
+                c='green', label='Benign', alpha=0.6, s=30, edgecolors='none')
     
     plt.scatter(tsne_results[malign_mask, 0], tsne_results[malign_mask, 1], 
-                c='red', label='Malignant', alpha=0.6, s=15, edgecolors='none')
+                c='red', label='Malignant', alpha=0.6, s=30, edgecolors='none')
     
-    plt.title(f"t-SNE Visualization of Latent Space\n({model_name})", fontsize=14)
+    plt.title(f"t-SNE Visualization of Latent Space\n{model_name} Conf3 Maxpooling(8) + Flatten", fontsize=14)
     plt.xlabel("t-SNE Dimension 1")
     plt.ylabel("t-SNE Dimension 2")
     plt.legend(loc='best')
@@ -206,11 +183,7 @@ def plot_tsne(latents, labels, model_name="Model"):
 def main():
     # 1. Load Model
     model = load_model(config_id="3", model_path=MODEL_PATH, model_name=MODEL_NAME)
-    
-    # Create embedding wrapper (NO freeze)
-    #embedding_model = AEEmbeddingNet(model).to(DEVICE)
-    #embedding_model.eval()
-    
+
     # 2. Load Data Separately
     # Loading separately allows us to force the labels (0 for Benign, 1 for Malignant)
     # This avoids issues if the dataset returns masks as targets
