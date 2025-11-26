@@ -88,6 +88,8 @@ class Encoder(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         
         x=self.encoder(x)
+        # DEBUG PRINT � THIS IS WHAT YOU NEED
+        #print("ENC SHAPE:", x.shape)
 
         return x
 
@@ -165,6 +167,7 @@ class Decoder(nn.Module):
 ##### GENERATIVE MODELS 
 
 ##### Variational Autoencoder
+##### Variational Autoencoder
 class VAECNN(nn.Module):
     r"""VAECNN model class
     `".
@@ -219,19 +222,25 @@ class VAECNN(nn.Module):
         
         return z, mu, logvar
 
-    def forward(self, x: Tensor) -> Tensor:
-        
-        input_sze=x.shape
-
-        x=self.encoder(x) # (Nbatch,NChannel,Sze)--> (Nbatch,LastHidden,Sze')
-        x_dim=x.shape[-1]
-        x=x.view(x.size(0), -1) # (Nbatch,LastHidden,Sze') --> (NBatch,LastHidden*Sze')
-        z, mu, logvar =self.representation(x) # (NBatch,LastHidden*Sze')-->(NBatch,z_dim)-->(NBatch,LastHidden*Sze')
-        z=z.view(z.shape[0], int(z.shape[1]/x_dim),x_dim) # (NBatch,LastHidden*Sze') -->  (Nbatch,LastHidden,Sze')
-        x=self.decoder(z)
-             
-        return x, mu, logvar
+    def forward(self, x):
     
+      input_sze=x.shape
+
+      x=self.encoder(x) # (Nbatch,NChannel,Sze)--> (Nbatch,LastHidden,Sze')
+      n, c, h, w = x.shape
+      
+      #x_dim=x.shape[-1]
+      #x=x.view(x.size(0), -1) # (Nbatch,LastHidden,Sze') --> (NBatch,LastHidden*Sze')
+
+      x = x.view(n, -1)
+
+      z, mu, logvar =self.representation(x) # (NBatch,LastHidden*Sze')-->(NBatch,z_dim)-->(NBatch,LastHidden*Sze')
+      #z=z.view(z.shape[0], int(z.shape[1]/x_dim),x_dim) # (NBatch,LastHidden*Sze') -->  (Nbatch,LastHidden,Sze')
+      z = z.view(n, c, h, w)
+      x=self.decoder(z)
+           
+      return x, mu, logvar
+ 
 # Standard Autoencoder
 class AutoEncoderCNN(nn.Module):
     r"""AutoEncoderCNN model class

@@ -44,11 +44,12 @@ def AEConfigs(Config):
 
 def init_run(config_number: int):
     assert config_number in [1, 2, 3], "Config number must be 1, 2, or 3."
+    print(config_number)
     net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec = AEConfigs(str(config_number))
     config = {
         "LEARNING_RATE": 1e-4, #0.002,
-        "BATCH_SIZE": 256, #512,
-        "EPOCHS": 50,
+        "BATCH_SIZE": 64, #512,
+        "EPOCHS": 1,
         "PROJECT_NAME": "helicodataset-autoencoder-anomaly",
         "scheduler_patience": 3,
         "net_paramsEnc": net_paramsEnc,
@@ -80,7 +81,7 @@ def init_run(config_number: int):
 
     wandb.config.update({"param_count": param_count})
 
-    return config, model
+    return config, model, MODEL_PATH
 
 def get_dataloaders(config):
     # WE ONLY ONE THE NEGATIVE CLASS IMAGES
@@ -126,7 +127,7 @@ def train(config, dataloader, optimizer, model, criterion):
         loss.backward()
         optimizer.step()
 
-        wandb.log({"train_batch_loss": loss.item()})
+        wandb.log({"batch_train_loss": loss.item()})
 
         train_loss += loss.item() * images.size(0)
 
@@ -150,7 +151,7 @@ def eval(config, dataloader, model, criterion):
     return val_loss
 
 def main(config_number: int):
-    config, model = init_run(config_number)
+    config, model, MODEL_PATH = init_run(config_number)
     
     training_data_loader, validation_data_loader = get_dataloaders(config)
 
@@ -169,7 +170,7 @@ def main(config_number: int):
         # so we use the training loss for the scheduler
         scheduler.step(train_loss)
 
-        print(f'Training Loss: {train_loss:.6f}, Validation Loss: {val_loss:.6f}')
+        print(f'Epoch {epoch}/{config.EPOCHS}, Training Loss: {train_loss:.6f}, Validation Loss: {val_loss:.6f}')
 
         wandb.log({
             "train_loss": train_loss,
@@ -180,12 +181,16 @@ def main(config_number: int):
     # save the final model
     torch.save(model.state_dict(), MODEL_PATH)
 
+    print(f"Model saved to {MODEL_PATH}")
+
     artifact = wandb.Artifact(
         'best-autoencoder', 
-        type='model',
+        type='model'
     )
     artifact.add_file(MODEL_PATH)
     wandb.run.log_artifact(artifact)
+
+    print("Training complete.")
 
     wandb.finish()
 

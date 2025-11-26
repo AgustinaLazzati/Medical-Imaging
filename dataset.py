@@ -6,6 +6,7 @@ import pandas as pd
 import yaml
 import numpy as np
 import torch
+import torchvision
 import cv2
 
 from torchvision import transforms
@@ -16,8 +17,6 @@ from typing import List, Optional, Tuple, Literal
 from enum import Enum
 
 DEFAULT_PATH = "/fhome/vlia/HelicoDataSet/"
-IMAGE_NET_MEAN = [0.485, 0.456, 0.406]
-IMAGE_NET_STD = [0.229, 0.224, 0.225]
 
 def delete_alpha_channel(image: torch.Tensor) -> torch.Tensor:
     if image.shape[0] == 4:
@@ -46,6 +45,14 @@ def cropped_collator(batch: list[dict]) -> dict[str, Any]:
     batched_labels = torch.tensor(labels_int, dtype=torch.long)
 
     return {"image": batched_images, "label": batched_labels}
+
+def annotated_collate(batch):
+    batch = [item for item in batch if item is not None]
+    
+    if len(batch) == 0:
+        return torch.tensor([]), torch.tensor([])
+
+    return torch.utils.data.dataloader.default_collate(batch)
 
 class HelicoCropped(Dataset):
     def __init__(self, target_id = "NEGATIVA", load_ram: bool=False):
@@ -92,29 +99,29 @@ class HelicoCropped(Dataset):
         self.load_ram = load_ram
 
         self.transform = transforms.Compose([
-            transforms.Resize((256, 256)),
-            transforms.Normalize(mean=IMAGE_NET_MEAN, std=IMAGE_NET_STD)
-        ])
+            transforms.Resize((256, 256)),      
+
+            # does several stuff:
+            # - [0, 255] -> [0, 1]
+            # - (H x W x C) -> (C x H x W) 
+            transforms.ToTensor(),
+        ])            
 
         if self.load_ram:
             self.ram_data = []
             for image_path, label, pid in tqdm(self.samples, desc="Loading data into RAM"):
-                image = Image.open(image_path)
-                image = torch.tensor(np.array(image)).float().permute(2, 0, 1)
-                image = image.permute(2, 0, 1)
-                image = delete_alpha_channel(image)
-                image = self.transform(image) / 255.0
+                image = Image.open(image_path).convert("RGB")
+                image = self.transform(image)
                 self.ram_data.append((image, label, pid))
 
     def __getitem__(self, index) -> Any:
         if self.load_ram:
             image, label, _ = self.ram_data[index]
+            
         else:
             image_path, label, _ = self.samples[index]
-            image = Image.open(image_path)
-            image = torch.tensor(np.array(image)).float().permute(2, 0, 1)
-            image = delete_alpha_channel(image)
-            image = self.transform(image) / 255.0
+            image = Image.open(image_path).convert("RGB")
+            image = self.transform(image)
 
         return {"image": image, "label": label}
 
@@ -122,7 +129,7 @@ class HelicoCropped(Dataset):
         return len(self.samples)
 
 class HelicoAnnotated(Dataset):
-    def __init__(self, patient_id: bool=False, only_negative: bool=False, load_ram: bool=False):
+    def __init__(self, patient_id: bool=False, only_negative: bool=False, only_positive: bool=False, load_ram: bool=False):
         xlsx_path = os.path.join(DEFAULT_PATH, "HP_WSI-CoordAnnotatedAllPatches.xlsx")
         data = pd.read_excel(xlsx_path)
         patient_ids = data["Pat_ID"].astype(str).to_numpy()
@@ -131,7 +138,6 @@ class HelicoAnnotated(Dataset):
         labels = data["Presence"].astype(int).to_numpy()
 
         if only_negative:
-            # filter only negative samples
             indices = np.where(labels == -1)[0]
             patient_ids = patient_ids[indices]
             section_ids = section_ids[indices]
@@ -139,6 +145,15 @@ class HelicoAnnotated(Dataset):
             labels = labels[indices]
 
             print(f"Number of negative samples: {len(labels)}")
+        elif only_positive:
+            indices = np.where(labels == 1)[0]
+            patient_ids = patient_ids[indices]
+            section_ids = section_ids[indices]
+            window_ids = window_ids[indices]
+            labels = labels[indices]
+            print(f"Number of positive samples: {len(labels)}")
+
+
         else:
             print(f"Total number of samples: {len(labels)}")
 
@@ -155,8 +170,17 @@ class HelicoAnnotated(Dataset):
 
             image_path = os.path.join(DEFAULT_PATH, "CrossValidation", "Annotated", f"{pid}_{sid}", f"{wid}.png")
             self.samples.append((image_path, label, pid))
-
+            
         self.load_ram = load_ram
+        self.transform = transforms.Compose([
+          transforms.Resize((256, 256)),      
+  
+          # does several stuff:
+          # - [0, 255] -> [0, 1]
+          # - (H x W x C) -> (C x H x W) 
+          transforms.ToTensor(),
+          ])        
+        
         if self.load_ram:
             self.ram_data = []
             for image_path, label, pid in tqdm(self.samples, desc="Loading data into RAM"):
@@ -169,14 +193,51 @@ class HelicoAnnotated(Dataset):
         if self.load_ram:
             image, label, _ = self.ram_data[index]
         else:
-            image_path, label, _ = self.samples[index]
-            image = torchvision.io.read_image(image_path)
-            image = delete_alpha_channel(image)
+            try:
+                image_path, label, _ = self.samples[index]
+                image = Image.open(image_path).convert("RGB")
+                image = self.transform(image)
+                
+            except Exception as e:
+                print(f"Error loading image at index {index}: {e}")
+                return None
 
         return image, label
 
     def __len__(self) -> int:
         return len(self.samples)
+
+class HelicoMixed(Dataset):
+    """
+    A unified dataset class that combines Benign and Malignant samples
+    for Triplet Loss training.
+    
+    - Benign (Negative) samples are assigned Label 0
+    - Malignant (Positive) samples are assigned Label 1
+    """
+    def __init__(self, load_ram: bool = False):
+        super().__init__()
+        # Initialize sub-datasets
+        self.benign_ds = HelicoAnnotated(only_negative=True, load_ram=load_ram)
+        self.malignant_ds = HelicoAnnotated(only_positive=True, load_ram=load_ram)
+        
+    def __len__(self):
+        return len(self.benign_ds) + len(self.malignant_ds)
+    
+    def __getitem__(self, index):
+        # Determine which dataset to pull from based on index
+        if index < len(self.benign_ds):
+            data = self.benign_ds[index]
+            if data is None: return None
+            img, _ = data
+            return img, 0 # Enforce Label 0 for Benign
+        else:
+            # Shift index for malignant dataset
+            adj_index = index - len(self.benign_ds)
+            data = self.malignant_ds[adj_index]
+            if data is None: return None
+            img, _ = data
+            return img, 1 # Enforce Label 1 for Malignant
 
 if __name__ == "__main__":
     dataset = HelicoCropped("ALTA")
