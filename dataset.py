@@ -199,7 +199,8 @@ class HelicoAnnotated(Dataset):
                 image = self.transform(image)
                 
             except Exception as e:
-                print(f"Error loading image at index {index}: {e}")
+                #ME MOLESTABA TANTO EL PRINT AJAJAJJA despues lo agregamos
+                #print(f"Error loading image at index {index}: {e}")
                 return None
 
         return image, label

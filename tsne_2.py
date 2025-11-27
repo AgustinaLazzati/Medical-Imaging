@@ -158,10 +158,10 @@ def plot_tsne(latents, labels, model_name="Model"):
     
     # Scatter Plot
     plt.scatter(tsne_results[benign_mask, 0], tsne_results[benign_mask, 1], 
-                c='green', label='Benign', alpha=0.6, s=30, edgecolors='none')
+                c='blue', label='Benign (-1)', alpha=0.8, s=30, edgecolors='none')
     
     plt.scatter(tsne_results[malign_mask, 0], tsne_results[malign_mask, 1], 
-                c='red', label='Malignant', alpha=0.6, s=30, edgecolors='none')
+                c='darkturquoise', label='Malignant (1)', alpha=0.8, s=30, edgecolors='none')
     
     plt.title(f"t-SNE Visualization of Latent Space\n{model_name} Conf3 Maxpooling(8) + Flatten", fontsize=14)
     plt.xlabel("t-SNE Dimension 1")
