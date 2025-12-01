@@ -10,6 +10,9 @@ import wandb
 import os
 import argparse
 
+import lovely_tensors as lt
+lt.monkey_patch()
+
 
 def AEConfigs(Config):
     inputmodule_paramsEnc={}
@@ -39,17 +42,24 @@ def AEConfigs(Config):
         net_paramsDec['block_configs']=[[64],[32],[inputmodule_paramsEnc['num_input_channels']]]
         net_paramsDec['stride']=net_paramsEnc['stride']
         inputmodule_paramsDec['num_input_channels']=net_paramsEnc['block_configs'][-1][-1]
+
+    elif Config=='4':
+        net_paramsEnc['block_configs']=[[64],[32],[16],[8]]
+        net_paramsEnc['stride']=[[1],[2],[2],[2]]
+        net_paramsDec['block_configs']=[[16],[32],[64],[inputmodule_paramsEnc['num_input_channels']]]
+        net_paramsDec['stride']=net_paramsEnc['stride']
+        inputmodule_paramsDec['num_input_channels']=net_paramsEnc['block_configs'][-1][-1]
     
     return net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec
 
 def init_run(config_number: int):
-    assert config_number in [1, 2, 3], "Config number must be 1, 2, or 3."
+    assert config_number in [1, 2, 3, 4], "Config number must be 1 2 3 4"
     print(config_number)
     net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec = AEConfigs(str(config_number))
     config = {
         "LEARNING_RATE": 1e-4, #0.002,
-        "BATCH_SIZE": 64, #512,
-        "EPOCHS": 1,
+        "BATCH_SIZE": 128, #512,
+        "EPOCHS": 10,
         "PROJECT_NAME": "helicodataset-autoencoder-anomaly",
         "scheduler_patience": 3,
         "net_paramsEnc": net_paramsEnc,
@@ -156,6 +166,11 @@ def main(config_number: int):
     training_data_loader, validation_data_loader = get_dataloaders(config)
 
     model = model.to(device)
+    dummy_input = torch.randn(2, 3, 256, 256).to(device)
+    print(model(dummy_input))
+    print(model.encoder(dummy_input))
+
+
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.LEARNING_RATE)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=config.scheduler_patience, verbose=True)
@@ -200,13 +215,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--config_number",
         type=int,
-        choices=[1, 2, 3],
+        choices=[1, 2, 3, 4],
         required=True,
-        help="Configuration number for the autoencoder architecture (1, 2, or 3)."
     )
 
     args = parser.parse_args()
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print('Using device:', device)

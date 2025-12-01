@@ -49,7 +49,7 @@ def VAEConfigs(Config):
         net_paramsDec['stride'] = net_paramsEnc['stride']
         inputmodule_paramsDec['num_input_channels'] = net_paramsDec['block_configs'][0][0]
         
-        net_paramsRep['h_dim'] = 65536
+        net_paramsRep['h_dim'] = 262144
         net_paramsRep['z_dim'] = 256
 
     return net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec, net_paramsRep

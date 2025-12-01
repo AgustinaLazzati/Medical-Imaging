@@ -15,7 +15,7 @@ from train_conv_vae import VAEConfigs
 # CONFIGURATION
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/condig_one.pth" # Adjust if needed
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vivid-armadillo-62.pth" # Adjust if needed
 BATCH_SIZE = 16
 MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 
@@ -26,7 +26,7 @@ SAVE_FIG = True
 # ----------------------------
 # 1. LOAD MODEL
 # ----------------------------
-def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
+def load_model(config_id, model_path=None, model_name="Autoencoder"):
     print(f"Loading {model_name} from {model_path}...")
     
     if model_name == "Autoencoder":
@@ -55,6 +55,7 @@ def get_all_errors(dataloader, model, model_name="Autoencoder"):
     Runs the model on the dataloader and returns a list of MSE errors for every image.
     """
     errors = []
+    metric='mse'
     with torch.no_grad():
         for batch in dataloader:
             images, labels = batch
@@ -126,7 +127,7 @@ def calculate_roc_metrics(benign_errors, malign_errors, thresholds):
 # ----------------------------
 def main():
     # A. Load Data & Model
-    model = load_model(config_id="1", model_path=MODEL_PATH, model_name=MODEL_NAME)
+    model = load_model(config_id="4", model_path=MODEL_PATH, model_name=MODEL_NAME)
     
     # Load FULL datasets (load_ram=False to save memory)
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)

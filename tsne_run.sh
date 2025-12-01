@@ -16,4 +16,4 @@ export WANDB_API_KEY=29cf4fb380fd7bca6b40de8bab6b441105ac51f4
 
 sleep 3
 
-python3 ../tsne.py
+python3 ../tsne_2.py

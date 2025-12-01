@@ -15,7 +15,7 @@ from train_conv_vae import VAEConfigs
 # ----------------------------
 # CONFIG
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vivid-armadillo-62.pth"
 #MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_2.pth"
 BATCH_SIZE = 16
 NUM_EXAMPLES = 5  # per class for visualization
@@ -24,7 +24,7 @@ MODEL_NAME = "Autoencoder"  # "Variational Autoencoder" or "Autoencoder"
 
 # ----------------------------
 # LOAD MODEL
-def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
+def load_model(config_id, model_path=None, model_name="Autoencoder"):
     if model_name == "Autoencoder":
         net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec = AEConfigs(config_id)
         model = AutoEncoderCNN(
@@ -240,11 +240,8 @@ def plot_error_comparison(benign_errors, malign_errors, model_name="AE"):
 # ----------------------------
 # MAIN
 def main():
-    # 1. Setup
-    model = load_model(config_id="3", model_path=MODEL_PATH, model_name=MODEL_NAME)
+    model = load_model(config_id="4", model_path=MODEL_PATH, model_name=MODEL_NAME)
 
-    # 2. Load Datasets
-    # Note: Make sure load_ram=False to avoid memory issues with full iteration
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)
     dataset_malign = HelicoAnnotated(only_positive=True, load_ram=False) 
 
@@ -254,7 +251,6 @@ def main():
     print(f"Benign samples: {len(dataset_benign)}")
     print(f"Malignant samples: {len(dataset_malign)}")
 
-    # 3. Visualization (Small subset)
     print("\nGenerating Visualizations...")
     benign_examples = get_examples(dataloader_benign, model, NUM_EXAMPLES, model_name=MODEL_NAME)
     malign_examples = get_examples(dataloader_malign, model, NUM_EXAMPLES, model_name=MODEL_NAME)
@@ -273,9 +269,6 @@ def main():
         subset_name="Malignant"
     )
 
-
-    # 4. Statistical Analysis (Full Dataset)
-    # This iterates the WHOLE dataset to find if the error can be used for classification
     print("\nCalculating Full Dataset Statistics...")
     benign_errors = get_reconstruction_errors(dataloader_benign, model, model_name=MODEL_NAME, metric="red")
     malign_errors = get_reconstruction_errors(dataloader_malign, model, model_name=MODEL_NAME, metric="red")

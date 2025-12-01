@@ -14,4 +14,4 @@
 ### TOMI'S KEY:
 export WANDB_API_KEY=786350642110ef7f9f59ffa010eb177dc549bd7c
 
-python3 ../train_conv_ae.py --config_number 3
+python3 ../train_conv_ae.py --config_number 4

@@ -19,9 +19,9 @@ from train_conv_vae import VAEConfigs
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
-#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_2.pth"
-BATCH_SIZE = 32 
-MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
+#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_3.pth"
+BATCH_SIZE = 128 
+MODEL_NAME = "Variational Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 SAVE_FIG = True
 MAX_SAMPLES = 2000 # Total samples to visualize (will try to take half from each class)
 
@@ -130,6 +130,8 @@ def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=
         latents = latents[:max_samples]
         labels = labels[:max_samples]
         
+    print("Latent Space: ", latents.shape)
+        
     return latents, labels
 
 # ----------------------------
@@ -178,7 +180,7 @@ def plot_tsne(latents, labels, model_name="Model"):
     plt.show()
 
 # ----------------------------
-# MAIN
+# 4. MAIN
 # ----------------------------
 def main():
     # 1. Load Model

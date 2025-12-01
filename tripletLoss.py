@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -5,33 +6,32 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
+import wandb
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import torch.nn.functional as F
 
-# Custom imports
 from dataset import HelicoAnnotated, annotated_collate
 from Models.AEmodels import AutoEncoderCNN, VAECNN
 from train_conv_ae import AEConfigs
 from train_conv_vae import VAEConfigs
 
-# ----------------------------
-# CONFIGURATION
-# ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
-#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_2.pth"
-BATCH_SIZE = 64 
-MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
+#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_3.pth"
+BATCH_SIZE = 128 #(en vae no me deja 128 poner 96)
+MODEL_NAME = "Variational Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 SAVE_FIG = True
 MAX_SAMPLES = 2000 # Total samples to visualize (will try to take half from each class)
-LEARNING_RATE = 1e-4
-EMBEDDING_DIM = 128
+LEARNING_RATE = 1e-3
+EMBEDDING_DIM = 256
 NUM_EPOCHS = 50
+RESULTS_DIR = "/fhome/vlia01/Medical-Imaging/results"
+MARGIN = 0.8
+NUM_WORKERS = 4
 
-# ----------------------------
-# 1. LOAD MODEL
-# ----------------------------
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
 def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
     print(f"Loading {model_name} from {model_path}...")
     
@@ -53,28 +53,21 @@ def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
     model.eval()
     return model
     
-# ----------------------------
-# 2. EMBEDDING NETWORK FOR TRIPLET
-# ----------------------------
+
 class EmbeddingNet(nn.Module):
     def __init__(self, base_model, embedding_dim=128):
         super().__init__()
         self.encoder = base_model.encoder
-        self.pool = nn.AdaptiveMaxPool2d((8, 8))
+        self.pool = nn.AdaptiveAvgPool2d((8, 8))
         self.fc = nn.LazyLinear(embedding_dim)
-
     def forward(self, x):
         z = self.encoder(x)           # [B, C, H, W]
         z = self.pool(z)              # [B, C, 8, 8]
         z = z.view(z.size(0), -1)     # flatten
         z = self.fc(z)                # [B, embedding_dim]
-        z = F.normalize(z, p=2, dim=1)
+        z = F.normalize(z, p=2, dim=1) # L2 normalization
         return z
 
-
-# ---------------------------
-# 3. Triplet Loss
-# ---------------------------
 
 class TripletLoss(nn.Module):
     """
@@ -96,68 +89,120 @@ class TripletLoss(nn.Module):
         return losses.mean()
 
 
-# ----------------------------------------
-# 4. TripletDataset built from QuironDataset
-# ----------------------------------------
-
 class TripletDataset(Dataset):
-    def __init__(self, base_dataset):
-        super(TripletDataset, self).__init__()
+    """
+    TripletDataset robusto:
+    - Usa safe_get() para saltar imagenes malas.
+    - Convierte labels de HelicoAnnotated (que pueden ser mascaras) a binario 0/1.
+    - Elimina cualquier muestra que NO tenga etiqueta valida.
+    - Construye triplets limpios y consistentes.
+    """
+    def __init__(self, base_dataset, max_retries=20):
+        super().__init__()
         self.base = base_dataset
-        self.samples = base_dataset.samples  # list of (path, label, pat_id)
+        self.max_retries = max_retries
 
-        # Build dictionary: label - list of indices with that label
-        self.label_to_indices = {}
-        for idx, (_, label, _) in enumerate(self.samples):
-            if label not in self.label_to_indices:
-                self.label_to_indices[label] = []
-            self.label_to_indices[label].append(idx)
+        self.valid_indices = []
+        self.labels = []
 
-        self.labels = np.array([lbl for (_, lbl, _) in self.samples])
-        self.unique_labels = list(self.label_to_indices.keys())
+        print("Building TripletDataset ...")
 
-        if len(self.unique_labels) < 2:
-            raise RuntimeError("Need at least 2 different labels to form triplets.")
+        # ---- 1. Filtrar muestras validas ----
+        for idx in range(len(self.base)):
+            sample = self.safe_get(idx)
+            if sample is None:
+                continue
 
-    def __len__(self):
-        return len(self.samples)
-        
+            img, label = sample[:2]
+
+            # Convertir mascaras ? valor binario
+            if isinstance(label, torch.Tensor):
+                label = int(label.float().mean().item() > 0)
+
+            # Mapear -1 ? 0, 1 ? 1
+            if label == -1:
+                mapped = 0
+            elif label == 1:
+                mapped = 1
+            elif label in (0, 1):  # ya binario
+                mapped = int(label)
+            else:
+                continue  # ignorar etiquetas raras
+
+            self.valid_indices.append(idx)
+            self.labels.append(mapped)
+
+        self.labels = np.array(self.labels)
+
+        self.label_to_indices = {
+            0: np.where(self.labels == 0)[0],
+            1: np.where(self.labels == 1)[0],
+        }
+
+        print("TripletDataset loaded:")
+        print("  Benign (0):     ", len(self.label_to_indices[0]))
+        print("  Malignant (1):  ", len(self.label_to_indices[1]))
+        print("  Total usable:   ", len(self.valid_indices))
+
+        if len(self.label_to_indices[0]) == 0 or len(self.label_to_indices[1]) == 0:
+            raise RuntimeError("ERROR: A class has zero valid samples!")
+
     def safe_get(self, index):
-        """Get image and label, skip if None"""
+        #Get image and label, skip if None
         data = self.base[index]
         while data is None:
             index = (index + 1) % len(self.base)
             data = self.base[index]
         return data
 
-    def __getitem__(self, idx):
+    def __len__(self):
+        return len(self.valid_indices)
+
+    def __getitem__(self, i):
+
         # Anchor
-        anchor_img, anchor_label = self.safe_get(idx)
-    
-        # Positive (same label)
-        same_label_indices = self.label_to_indices[anchor_label]
-        if len(same_label_indices) > 1:
-            pos_idx = idx
-            while pos_idx == idx:
-                pos_idx = random.choice(same_label_indices)
+        anchor_base_idx = self.valid_indices[i]
+        anchor_data = self.safe_get(anchor_base_idx)
+        if anchor_data is None:
+            # buscar otro indice valido
+            j = random.randint(0, len(self.valid_indices)-1)
+            anchor_base_idx = self.valid_indices[j]
+            anchor_data = self.safe_get(anchor_base_idx)
+        
+        anchor_img, anchor_label = anchor_data[:2]
+        # Normalizar el label a 0/1
+        if isinstance(anchor_label, torch.Tensor):
+            anchor_label = int(anchor_label.float().mean().item() > 0)
+        elif anchor_label == -1:
+            anchor_label = 0
         else:
-            pos_idx = idx
-        positive_img, _ = self.safe_get(pos_idx)
-    
-        # Negative (different label)
-        neg_label_choices = [l for l in self.unique_labels if l != anchor_label]
-        neg_label = random.choice(neg_label_choices)
-        neg_idx = random.choice(self.label_to_indices[neg_label])
-        negative_img, _ = self.safe_get(neg_idx)
-    
+            anchor_label = int(anchor_label)
+
+        # Positive
+        same_pool = self.label_to_indices[anchor_label]
+        pos_choice = i
+        while pos_choice == i:
+            pos_choice = int(random.choice(same_pool))
+        pos_base_idx = self.valid_indices[pos_choice]
+        positive_img = self.safe_get(pos_base_idx)[0]
+
+        # Negative
+        neg_label = 1 - anchor_label
+        neg_pool = self.label_to_indices[neg_label]
+        neg_choice = int(random.choice(neg_pool))
+        neg_base_idx = self.valid_indices[neg_choice]
+        negative_img = self.safe_get(neg_base_idx)[0]
+
         return anchor_img, positive_img, negative_img
 
 
-
-# ----------------------------
-# 5. EXTRACT LATENT VECTORS FOR TSNE
-# ----------------------------
-def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=None, force_label=None):
+def get_latent_vectors(dataloader, embedding_model, max_samples=None, force_label=None):
+    
+    #Extract latent vectors from a trained EmbeddingNet.
+    # embedding_model: the trained EmbeddingNet (encoder -> pool -> FC -> normalize)
+    #not needed to handle AE or VAE separatelly, since they are handled in EmbeddingNet 
+    
+    embedding_model.eval()
     latents_list = []
     labels_list = []
     total_samples = 0
@@ -172,15 +217,9 @@ def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=
             if images.dtype == torch.uint8:
                 images = images.float() / 255.0
 
-            if model_name == "Variational Autoencoder":
-                _, mu, _ = model(images)
-                curr_latents = mu
-            else:
-                curr_latents = model.encoder(images)
+            # Use the full embedding model
+            curr_latents = embedding_model(images)
 
-            if curr_latents.ndim == 4:
-                curr_latents = F.adaptive_max_pool2d(curr_latents, (8, 8))
-            curr_latents = curr_latents.view(curr_latents.size(0), -1)
             latents_list.append(curr_latents.cpu().numpy())
 
             if force_label is not None:
@@ -198,13 +237,12 @@ def get_latent_vectors(dataloader, model, model_name="Autoencoder", max_samples=
     if max_samples:
         latents = latents[:max_samples]
         labels = labels[:max_samples]
+    print("Embedding latent shape:", latents.shape)
 
     return latents, labels
 
-# ----------------------------
-# 6. TSNE PLOTTING
-# ----------------------------
-def plot_tsne(latents, labels, model_name="Model"):
+
+def plot_tsne(latents, labels, model_name="Model", save_dir=RESULTS_DIR):
     print(f"Computing t-SNE on {latents.shape[0]} samples with {latents.shape[1]} dimensions...")
     tsne = TSNE(n_components=2, random_state=42, perplexity=40, max_iter=1000, learning_rate='auto', init='pca')
     tsne_results = tsne.fit_transform(latents)
@@ -227,73 +265,138 @@ def plot_tsne(latents, labels, model_name="Model"):
     plt.grid(alpha=0.3)
 
     if SAVE_FIG:
-        save_dir = "/fhome/vlia01/Medical-Imaging/results"
         os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(os.path.join(save_dir, f"TripletLoss_{model_name.replace(' ', '_')}.png"), dpi=300)
-    plt.show()
+        save_path = os.path.join(save_dir, f"TripletLoss_{model_name.replace(' ', '_')}.png")
+        plt.savefig(save_path, dpi=300)
+        print(f"Saved TSNE to {save_path}")
+        # also log to wandb if active
+        try:
+            wandb.log({"tsne_plot": wandb.Image(save_path)})
+        except Exception:
+            pass
 
-# ----------------------------
-# 7. MAIN
-# ----------------------------
+    plt.show()
+    
+
+def init_run():
+    config = {
+        "BATCH_SIZE": BATCH_SIZE,
+        "LEARNING_RATE": LEARNING_RATE,
+        "EMBEDDING_DIM": EMBEDDING_DIM,
+        "NUM_EPOCHS": NUM_EPOCHS,
+        "BATCH_SIZE": BATCH_SIZE,
+        "NUM_WORKERS": NUM_WORKERS,
+        "MARGIN": MARGIN,
+        "PROJECT_NAME": "helicodataset-triplet-embedding"
+    }
+    wandb.init(project=config["PROJECT_NAME"], config=config)
+    cfg = wandb.config
+    return cfg
+
 def main():
-    # Load AE/VAE model
+    cfg = init_run()
+    
     model = load_model(config_id="3", model_path=MODEL_PATH, model_name=MODEL_NAME)
     
-    ###
-    # Triplet Training
-    ###
     print(f"Starting embbedings...")
     embedding_model = EmbeddingNet(model, embedding_dim=EMBEDDING_DIM).to(DEVICE)
-    embedding_model.train()
-    criterion = TripletLoss(margin=1.0)
-    optimizer = torch.optim.Adam(embedding_model.parameters(), lr=LEARNING_RATE)
 
+    # Prepare training objects
+    criterion = TripletLoss(margin=float(MARGIN))
+    
+    # ensure LazyLinear parameters are initialized (one dummy forward)
+    with torch.no_grad():
+        try:
+            dummy = torch.zeros(1, 3, 256, 256).to(DEVICE)  
+            embedding_model(dummy)
+        except Exception as e:
+            print("Warning: dummy forward failed:", e)
+    
+    optimizer = torch.optim.Adam(embedding_model.parameters(), lr=float(LEARNING_RATE))
+
+    # Create a TripletDataset and DataLoader
     triplet_dataset = TripletDataset(base_dataset=HelicoAnnotated(load_ram=False))
-    triplet_loader = DataLoader(triplet_dataset, batch_size=BATCH_SIZE, shuffle=True)
+    triplet_loader = DataLoader(
+        triplet_dataset,
+        batch_size=int(BATCH_SIZE),
+        shuffle=True,
+        num_workers=NUM_WORKERS,
+        pin_memory=True,
+        persistent_workers=False
+    )
 
-    for epoch in range(NUM_EPOCHS):
-        epoch_loss = 0
+    try:
+        wandb.watch(embedding_model, criterion, log="all", log_freq=100)
+    except Exception:
+        pass
+        
+    epoch_losses = []
+    print("Starting triplet training...")
+    embedding_model.train()
+    for epoch in range(int(NUM_EPOCHS)):
+        running_loss = 0.0
+        n_batches = 0
         for anchor, positive, negative in triplet_loader:
             anchor = anchor.to(DEVICE).float()
             positive = positive.to(DEVICE).float()
             negative = negative.to(DEVICE).float()
+
+            # Normalize image range if needed
             if anchor.max() > 1:
-                anchor /= 255.0
-                positive /= 255.0
-                negative /= 255.0
+                anchor = anchor / 255.0
+                positive = positive / 255.0
+                negative = negative / 255.0
 
-            z_anchor = embedding_model(anchor)
-            z_pos = embedding_model(positive)
-            z_neg = embedding_model(negative)
+            z_a = embedding_model(anchor)
+            z_p = embedding_model(positive)
+            z_n = embedding_model(negative)
 
-            loss = criterion(z_anchor, z_pos, z_neg)
+            loss = criterion(z_a, z_p, z_n)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            epoch_loss += loss.item()
 
-        print(f"Epoch [{epoch+1}/{NUM_EPOCHS}], Loss: {epoch_loss/len(triplet_loader):.4f}")
+            running_loss += loss.item()
+            n_batches += 1
 
-    ###
-    # Extract embeddings for TSNE
-    ###
+            # log batch loss
+            try:
+                wandb.log({"batch_train_loss": loss.item()})
+            except Exception:
+                pass
+
+        avg_loss = running_loss / max(1, n_batches)
+        epoch_losses.append(avg_loss)
+        print(f"Epoch [{epoch+1}/{int(NUM_EPOCHS)}] - Loss: {avg_loss:.6f}")
+        wandb.log({"epoch": epoch + 1, "epoch_train_loss": avg_loss})
+
+    print("Training finished. Switching embedding model to eval() for extraction.")
+    embedding_model.eval()
+    
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)
     dataset_malign = HelicoAnnotated(only_positive=True, load_ram=False)
 
-    loader_benign = DataLoader(dataset_benign, batch_size=BATCH_SIZE, shuffle=True, collate_fn=annotated_collate)
-    loader_malign = DataLoader(dataset_malign, batch_size=BATCH_SIZE, shuffle=True, collate_fn=annotated_collate)
+    loader_benign = DataLoader(dataset_benign, batch_size=int(BATCH_SIZE), shuffle=True, collate_fn=annotated_collate, num_workers=NUM_WORKERS, pin_memory=True)
+    loader_malign = DataLoader(dataset_malign, batch_size=int(BATCH_SIZE), shuffle=True, collate_fn=annotated_collate, num_workers=NUM_WORKERS, pin_memory=True)
 
     samples_per_class = MAX_SAMPLES // 2 if MAX_SAMPLES else None
 
-    latents_b, labels_b = get_latent_vectors(loader_benign, embedding_model, MODEL_NAME, samples_per_class, force_label=0)
-    latents_m, labels_m = get_latent_vectors(loader_malign, embedding_model, MODEL_NAME, samples_per_class, force_label=1)
+    latents_b, labels_b = get_latent_vectors(loader_benign, embedding_model, samples_per_class, force_label=0)
+    latents_m, labels_m = get_latent_vectors(loader_malign, embedding_model, samples_per_class, force_label=1)
 
     if len(latents_b) > 0 and len(latents_m) > 0:
         latents = np.concatenate([latents_b, latents_m], axis=0)
         labels = np.concatenate([labels_b, labels_m], axis=0)
-        plot_tsne(latents, labels, model_name=MODEL_NAME)
+
+        plot_tsne(latents, labels, model_name=MODEL_NAME, save_dir=RESULTS_DIR)
     else:
         print("Error: Could not extract latents from one or both datasets.")
 
+    try:
+        wandb.finish()
+    except Exception:
+        pass
+
 if __name__ == "__main__":
+    print("Using device:", DEVICE)
     main()
