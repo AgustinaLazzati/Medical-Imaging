@@ -1,5 +1,5 @@
 wandb/
 slurm_output/
 checkpoints/
-
+*.pth
 **/__pycache__/*
