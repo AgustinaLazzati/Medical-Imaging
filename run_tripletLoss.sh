@@ -9,11 +9,11 @@
 
 
 ### AGU'S KEY:
-export WANDB_API_KEY=29cf4fb380fd7bca6b40de8bab6b441105ac51f4
+#export WANDB_API_KEY=29cf4fb380fd7bca6b40de8bab6b441105ac51f4
 
 ### TOMI'S KEY:
-##export WANDB_API_KEY=786350642110ef7f9f59ffa010eb177dc549bd7c
+export WANDB_API_KEY=786350642110ef7f9f59ffa010eb177dc549bd7c
 
 sleep 3
 
-python3 ../tripletLoss.py
+python3 ../class_head.py

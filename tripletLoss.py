@@ -18,9 +18,10 @@ from train_conv_vae import VAEConfigs
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+
 #MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_3.pth"
 BATCH_SIZE = 128 #(en vae no me deja 128 poner 96)
-MODEL_NAME = "Variational Autoencoder" # "Autoencoder" or "Variational Autoencoder"
+MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 SAVE_FIG = True
 MAX_SAMPLES = 2000 # Total samples to visualize (will try to take half from each class)
 LEARNING_RATE = 1e-3
@@ -32,7 +33,7 @@ NUM_WORKERS = 4
 
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
-def load_model(config_id="3", model_path=None, model_name="Autoencoder"):
+def load_model(config_id, model_path=None, model_name="Autoencoder"):
     print(f"Loading {model_name} from {model_path}...")
     
     if model_name == "Autoencoder":
@@ -370,9 +371,13 @@ def main():
         print(f"Epoch [{epoch+1}/{int(NUM_EPOCHS)}] - Loss: {avg_loss:.6f}")
         wandb.log({"epoch": epoch + 1, "epoch_train_loss": avg_loss})
 
+    save_path = os.path.join(RESULTS_DIR, "triplet_embedding_model.pth")
+    torch.save(embedding_model.state_dict(), save_path)
+    print(f"Saved model state_dict to {save_path}")
+
     print("Training finished. Switching embedding model to eval() for extraction.")
     embedding_model.eval()
-    
+
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)
     dataset_malign = HelicoAnnotated(only_positive=True, load_ram=False)
 

@@ -1,3 +1,5 @@
 wandb/
 slurm_output/
 checkpoints/
+
+**/__pycache__/*

@@ -15,7 +15,7 @@ from train_conv_vae import VAEConfigs
 # CONFIGURATION
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vivid-armadillo-62.pth" # Adjust if needed
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.ph" # Adjust if needed
 BATCH_SIZE = 16
 MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 
@@ -50,12 +50,11 @@ def load_model(config_id, model_path=None, model_name="Autoencoder"):
 # ----------------------------
 # 2. CALCULATE ERRORS
 # ----------------------------
-def get_all_errors(dataloader, model, model_name="Autoencoder"):
+def get_all_errors(dataloader, model, metric: str, model_name="Autoencoder"):
     """
     Runs the model on the dataloader and returns a list of MSE errors for every image.
     """
     errors = []
-    metric='mse'
     with torch.no_grad():
         for batch in dataloader:
             images, labels = batch
@@ -68,17 +67,17 @@ def get_all_errors(dataloader, model, model_name="Autoencoder"):
                 recon, mu, logvar = model(images)
             
             if metric == "mse":
-              # Calculate MSE per image: average over [Channels, H, W]
-              # Shape: [Batch_Size]
               batch_mse = torch.mean((images - recon) ** 2, dim=[1, 2, 3])
               errors.extend(batch_mse.cpu().numpy())
+
             elif metric == "red":
               red_original = images[:, 0:1, :, :]
               red_recon = recon[:, 0:1, :, :]
-              # Extract the Red Channel (Channel 0 for RGB images)
-              # Slicing [:, 0:1, :, :] keeps the channel dimension for correct calculation
               batch_red_mse = torch.mean((red_original - red_recon) ** 2, dim=[1, 2, 3])
               errors.extend(batch_red_mse.cpu().numpy())
+            
+            elif metric == 
+              # Shape: [Batch_Size]
             
     return np.array(errors)
 
@@ -135,13 +134,15 @@ def main():
     
     loader_benign = DataLoader(dataset_benign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
     loader_malign = DataLoader(dataset_malign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
+
+    METRIC = 'red'
     
     # B. Get Error Distributions
     print("Calculating Benign Errors...")
-    benign_err = get_all_errors(loader_benign, model, MODEL_NAME)
+    benign_err = get_all_errors(loader_benign, model, metric=METRIC, model_name=MODEL_NAME)
     
     print("Calculating Malignant Errors...")
-    malign_err = get_all_errors(loader_malign, model, MODEL_NAME)
+    malign_err = get_all_errors(loader_malign, model, metric=METRIC, model_name=MODEL_NAME)
     
     # C. Define Thresholds
     # We dynamically find the range based on your data
@@ -188,7 +189,7 @@ def main():
     
     if SAVE_FIG:
         os.makedirs("results", exist_ok=True)
-        save_path = f"results/ROC_{MODEL_NAME.replace(' ', '_')}.png"
+        save_path = f"results/ROC_RED_{MODEL_NAME.replace(' ', '_')}.png"
         plt.savefig(save_path, dpi=300)
         print(f"Plot saved to {save_path}")
         
