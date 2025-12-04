@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+from sklearn.metrics import roc_curve, auc
+import cv2  
 
 # Custom imports
 from dataset import HelicoAnnotated, annotated_collate
@@ -15,7 +17,7 @@ from train_conv_vae import VAEConfigs
 # CONFIGURATION
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.ph" # Adjust if needed
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth" # Adjust if needed
 BATCH_SIZE = 16
 MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 
@@ -50,149 +52,134 @@ def load_model(config_id, model_path=None, model_name="Autoencoder"):
 # ----------------------------
 # 2. CALCULATE ERRORS
 # ----------------------------
-def get_all_errors(dataloader, model, metric: str, model_name="Autoencoder"):
+def get_reconstruction_errors(dataloader, model, model_name="Autoencoder", metric="hsv_red"):
     """
-    Runs the model on the dataloader and returns a list of MSE errors for every image.
+    Compute HSV-based red-channel reconstruction error per image.
+    metric="hsv_red": fraction of bright true-red pixels lost in reconstruction
     """
-    errors = []
+    all_errors = []
+
+    print(f"Calculating {metric.upper()} errors for dataset...")
+
     with torch.no_grad():
         for batch in dataloader:
             images, labels = batch
             images = images.to(DEVICE).float()
-            if images.max() > 1: images /= 255.0
-            
+            if images.max() > 1:
+                images /= 255.0
+
+            # Forward pass
             if model_name == "Autoencoder":
                 recon = model(images)
             else:
-                recon, mu, logvar = model(images)
-            
-            if metric == "mse":
-              batch_mse = torch.mean((images - recon) ** 2, dim=[1, 2, 3])
-              errors.extend(batch_mse.cpu().numpy())
+                recon, _, _ = model(images)
 
-            elif metric == "red":
-              red_original = images[:, 0:1, :, :]
-              red_recon = recon[:, 0:1, :, :]
-              batch_red_mse = torch.mean((red_original - red_recon) ** 2, dim=[1, 2, 3])
-              errors.extend(batch_red_mse.cpu().numpy())
-            
-            elif metric == 
-              # Shape: [Batch_Size]
-            
-    return np.array(errors)
+            batch_errors = []
+            for orig_img, rec_img in zip(images, recon):
+                # Convert to numpy [H,W,3] in range 0-255
+                orig_np = (orig_img.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
+                rec_np = (rec_img.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
 
-# ----------------------------
-# 3. ROC CALCULATION
-# ----------------------------
-def calculate_roc_metrics(benign_errors, malign_errors, thresholds):
-    tpr_list = []
-    fpr_list = []
-    
-    print(f"Evaluating {len(thresholds)} thresholds...")
+                # Convert RGB -> HSV
+                orig_hsv = cv2.cvtColor(orig_np, cv2.COLOR_RGB2HSV)
+                rec_hsv = cv2.cvtColor(rec_np, cv2.COLOR_RGB2HSV)
 
-    for threshold in thresholds:
-        # --- CLASSIFICATION LOGIC ---
-        # If Error > Threshold -> Classify as Malignant (Positive)
-        # If Error <= Threshold -> Classify as Benign (Negative)
-        
-        # True Positives (TP): Malignant samples correctly identified as Malignant
-        tp = np.sum(malign_errors > threshold)
-        
-        # False Negatives (FN): Malignant samples incorrectly identified as Benign
-        fn = np.sum(malign_errors <= threshold)
-        
-        # False Positives (FP): Benign samples incorrectly identified as Malignant
-        fp = np.sum(benign_errors > threshold)
-        
-        # True Negatives (TN): Benign samples correctly identified as Benign
-        tn = np.sum(benign_errors <= threshold)
-        
-        # --- RATES ---
-        # TPR (Sensitivity/Recall) = TP / (TP + FN)
-        # How many of the actual malignant cases did we catch?
-        tpr = tp / (tp + fn) if (tp + fn) > 0 else 0
-        
-        # FPR (1 - Specificity) = FP / (FP + TN)
-        # How many benign cases did we falsely alarm?
-        fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
-        
-        tpr_list.append(tpr)
-        fpr_list.append(fpr)
-        
-    return np.array(fpr_list), np.array(tpr_list)
+                orig_hue = orig_hsv[:, :, 0]
+                orig_sat = orig_hsv[:, :, 1] / 255.0
+                rec_hue = rec_hsv[:, :, 0]
+                rec_sat = rec_hsv[:, :, 1] / 255.0
+
+                # Red mask: Hue near 0 or 179, saturation > 0.5
+                orig_mask = ((orig_hue <= 10) | (orig_hue >= 170))  & (orig_sat > 0.04)
+                rec_mask = ((rec_hue <= 10) | (rec_hue >= 170)) & (rec_sat > 0.04)
+
+                # Fraction of bright red pixels lost
+                error_val = np.sum(orig_mask & (~rec_mask)) / orig_mask.size
+                batch_errors.append(error_val)
+
+            all_errors.extend(batch_errors)
+
+    return np.array(all_errors)
+
 
 # ----------------------------
-# 4. MAIN PLOTTING LOGIC
+# 3. CALCULATE ROC (sklearn)
+# ----------------------------
+def calculate_roc_metrics(benign_errors, malign_errors):
+    """
+    Compute FPR, TPR, thresholds and AUC for ROC curve using sklearn
+    """
+    # Create labels: 0=benign, 1=malignant
+    y_true = np.concatenate([np.zeros_like(benign_errors), np.ones_like(malign_errors)])
+    y_scores = np.concatenate([benign_errors, malign_errors])  # Higher error = more likely malignant
+
+    # Compute ROC
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+
+    # Compute AUC
+    roc_auc = auc(fpr, tpr)
+
+    return fpr, tpr, thresholds, roc_auc
+
+
+# ----------------------------
+# 4. MAIN
 # ----------------------------
 def main():
     # A. Load Data & Model
-    model = load_model(config_id="4", model_path=MODEL_PATH, model_name=MODEL_NAME)
-    
+    model = load_model(config_id="3", model_path=MODEL_PATH, model_name=MODEL_NAME)
+
     # Load FULL datasets (load_ram=False to save memory)
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)
     dataset_malign = HelicoAnnotated(only_positive=True, load_ram=False)
-    
+
     loader_benign = DataLoader(dataset_benign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
     loader_malign = DataLoader(dataset_malign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
 
     METRIC = 'red'
-    
+
     # B. Get Error Distributions
     print("Calculating Benign Errors...")
-    benign_err = get_all_errors(loader_benign, model, metric=METRIC, model_name=MODEL_NAME)
-    
+    benign_err = get_reconstruction_errors(loader_benign, model, metric=METRIC, model_name=MODEL_NAME)
+
     print("Calculating Malignant Errors...")
-    malign_err = get_all_errors(loader_malign, model, metric=METRIC, model_name=MODEL_NAME)
-    
-    # C. Define Thresholds
-    # We dynamically find the range based on your data
-    min_err = min(benign_err.min(), malign_err.min())
-    max_err = max(benign_err.max(), malign_err.max())
-    
-    # Add a small buffer to the max range to ensure the curve hits (0,0)
-    print(f"\nData Range Detected -> Min: {min_err:.6f}, Max: {max_err:.6f}")
-    
-    # Based on your plot, max is likely ~0.0025. 
-    # We create evenly spaced thresholds across this full range.
-    thresholds = np.linspace(min_err, max_err, NUM_THRESHOLDS)
-    
-    # D. Calculate ROC
-    fpr, tpr = calculate_roc_metrics(benign_err, malign_err, thresholds)
-    
-    # Calculate Best Threshold (Youden's J statistic: max(TPR - FPR))
-    # This finds the point closest to the top-left corner
+    malign_err = get_reconstruction_errors(loader_malign, model, metric=METRIC, model_name=MODEL_NAME)
+
+    # C. Calculate ROC automatically
+    fpr, tpr, thresholds, roc_auc = calculate_roc_metrics(benign_err, malign_err)
+
+    # D. Best Threshold (Youden's J statistic) OPTIMAL THRESHOLD
     J = tpr - fpr
     best_idx = np.argmax(J)
     best_threshold = thresholds[best_idx]
     best_tpr = tpr[best_idx]
     best_fpr = fpr[best_idx]
-    
+
     print(f"\n--- RESULTS ---")
     print(f"Best Threshold found: {best_threshold:.6f}")
     print(f"At this threshold -> TPR (Recall): {best_tpr:.4f}, FPR: {best_fpr:.4f}")
-    
+    print(f"AUC: {roc_auc:.4f}")
+
     # E. Plotting
     plt.figure(figsize=(8, 6))
-    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (Best Thresh={best_threshold:.5f})')
-    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--') # Random guess line
-    
-    # Mark the best threshold point
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC={roc_auc:.4f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')  # Random guess line
     plt.scatter(best_fpr, best_tpr, color='red', label='Optimal Point', zorder=5)
-    
+
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate (1 - Specificity)')
     plt.ylabel('True Positive Rate (Sensitivity)')
-    plt.title(f'ROC Curve - {MODEL_NAME}')
+    plt.title(f'ROC Curve PATCH LEVEL - {MODEL_NAME} Conf3')
     plt.legend(loc="lower right")
     plt.grid(alpha=0.3)
-    
+
     if SAVE_FIG:
         os.makedirs("results", exist_ok=True)
         save_path = f"results/ROC_RED_{MODEL_NAME.replace(' ', '_')}.png"
         plt.savefig(save_path, dpi=300)
         print(f"Plot saved to {save_path}")
-        
+
     plt.show()
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import cv2
 
 # Custom imports (Keep your existing folder structure)
 from dataset import HelicoAnnotated, annotated_collate
@@ -13,9 +14,10 @@ from train_conv_ae import AEConfigs
 from train_conv_vae import VAEConfigs
 
 # ----------------------------
-# CONFIG
+# CONFIGURATION
+# ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vivid-armadillo-62.pth"
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
 #MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_2.pth"
 BATCH_SIZE = 16
 NUM_EXAMPLES = 5  # per class for visualization
@@ -23,7 +25,8 @@ SAVE_FIG = True
 MODEL_NAME = "Autoencoder"  # "Variational Autoencoder" or "Autoencoder"
 
 # ----------------------------
-# LOAD MODEL
+# 1. LOAD MODEL
+# ----------------------------
 def load_model(config_id, model_path=None, model_name="Autoencoder"):
     if model_name == "Autoencoder":
         net_paramsEnc, net_paramsDec, inputmodule_paramsEnc, inputmodule_paramsDec = AEConfigs(config_id)
@@ -58,7 +61,7 @@ def load_model(config_id, model_path=None, model_name="Autoencoder"):
 
 # ----------------------------
 # HELPER FUNCTIONS
-
+# ----------------------------
 def get_examples(dataloader, model, num_examples, model_name="Autoencoder"):
     """
     Get specific examples for visualization.
@@ -92,60 +95,61 @@ def get_examples(dataloader, model, num_examples, model_name="Autoencoder"):
                     
     return examples
 
-def get_reconstruction_errors(dataloader, model, model_name="Autoencoder", metric="mse"):
+# ----------------------------
+# 2. CALCULATE ERRORS
+# ----------------------------
+def get_reconstruction_errors(dataloader, model, model_name="Autoencoder", metric="hsv_red"):
+    """
+    Compute HSV-based red-channel reconstruction error per image.
+    metric="hsv_red": fraction of bright true-red pixels lost in reconstruction
+    """
     all_errors = []
-    
+
     print(f"Calculating {metric.upper()} errors for dataset...")
-    
+
     with torch.no_grad():
         for batch in dataloader:
             images, labels = batch
             images = images.to(DEVICE).float()
-            if images.max() > 1: images /= 255.0
-            
+            if images.max() > 1:
+                images /= 255.0
+
+            # Forward pass
             if model_name == "Autoencoder":
                 recon = model(images)
-                mu, logvar = None, None
-            elif model_name == "Variational Autoencoder":
-                recon, mu, logvar = model(images)
-            
-            # --- METRIC CALCULATIONS ---
-            
-            # 1. MSE (Standard)
-            if metric == "mse":
-                batch_errors = torch.mean((images - recon) ** 2, dim=[1, 2, 3])
-            
-            # 2. L1 / MAE (Focus on sharpness)
-            elif metric == "mae":
-                batch_errors = torch.mean(torch.abs(images - recon), dim=[1, 2, 3])
-            
-            elif metric == "red":
-                red_original = images[:, 0:1, :, :]
-                red_recon = recon[:, 0:1, :, :]
-                batch_errors = torch.mean((red_original - red_recon) ** 2, dim=[1, 2, 3])
-                
-            # 3. KL Divergence (VAE Only - measures "statistical" anomaly)
-            elif metric == "kl":
-                if mu is None or logvar is None:
-                    raise ValueError("KL metric only available for VAE")
-                # KL = -0.5 * sum(1 + logvar - mu^2 - exp(logvar))
-                # We sum over the latent dimension (dim 1)
-                kl_per_image = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-                batch_errors = kl_per_image
+            else:
+                recon, _, _ = model(images)
 
-            # 4. Combined (ELBO approximation: MSE + KL)
-            elif metric == "combined":
-                 mse = torch.sum((images - recon) ** 2, dim=[1, 2, 3]) # sum usually better for ELBO balancing
-                 if mu is not None:
-                     kl = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-                     batch_errors = mse + kl
-                 else:
-                     batch_errors = mse
+            batch_errors = []
+            for orig_img, rec_img in zip(images, recon):
+                # Convert to numpy [H,W,3] in range 0-255
+                orig_np = (orig_img.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
+                rec_np = (rec_img.permute(1,2,0).cpu().numpy() * 255).astype(np.uint8)
 
-            all_errors.extend(batch_errors.cpu().numpy().tolist())
-            
+                # Convert RGB -> HSV
+                orig_hsv = cv2.cvtColor(orig_np, cv2.COLOR_RGB2HSV)
+                rec_hsv = cv2.cvtColor(rec_np, cv2.COLOR_RGB2HSV)
+
+                orig_hue = orig_hsv[:, :, 0]
+                orig_sat = orig_hsv[:, :, 1] / 255.0
+                rec_hue = rec_hsv[:, :, 0]
+                rec_sat = rec_hsv[:, :, 1] / 255.0
+
+                # Red mask: Hue near 0 or 179, saturation > 0.5
+                orig_mask = ((orig_hue <= 10) | (orig_hue >= 170))  & (orig_sat > 0.05)
+                rec_mask = ((rec_hue <= 10) | (rec_hue >= 170)) & (rec_sat > 0.05)
+
+                # Fraction of bright red pixels lost
+                error_val = np.sum(orig_mask & (~rec_mask)) / orig_mask.size
+                batch_errors.append(error_val)
+
+            all_errors.extend(batch_errors)
+
     return np.array(all_errors)
 
+# ----------------------------
+# 3. PLOTTING IMAGES
+# ----------------------------
 def to_numpy(img_tensor):
     """ Convert tensor [C,H,W] to numpy [H,W,C] """
     img = img_tensor.detach().cpu().permute(1, 2, 0).numpy()
@@ -173,30 +177,46 @@ def plot_reconstructions_with_error(images, reconstructions, model_name="Autoenc
         plt.imshow(recon_img)
         plt.axis("off")
         if i == n // 2: plt.title("Reconstructed")
-
+        
         # 3. Error (Difference)
         plt.subplot(3, n, i + 1 + 2 * n)
-        # Calculate absolute difference per channel, then mean over channels to get heatmap
-        diff_map = np.abs(orig_img - recon_img)
-        # Optional: Average over channels for a greyscale heatmap, or keep RGB diff
-        # Here we show RGB diff magnitude
-        plt.imshow(diff_map) 
+        
+        # Convert to HSV and compute true-red mask
+        orig_hsv = cv2.cvtColor((orig_img*255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+        recon_hsv = cv2.cvtColor((recon_img*255).astype(np.uint8), cv2.COLOR_RGB2HSV)
+        
+        orig_hue = orig_hsv[:, :, 0]
+        orig_sat = orig_hsv[:, :, 1] / 255.0
+        recon_hue = recon_hsv[:, :, 0]
+        recon_sat = recon_hsv[:, :, 1] / 255.0
+        
+        orig_mask = ((orig_hue <= 10) | (orig_hue >= 170)) & (orig_sat > 0.05)
+        recon_mask = ((recon_hue <= 10) | (recon_hue >= 170)) & (recon_sat  > 0.05)
+        
+        # Fraction of bright red pixels lost
+        error_val = np.sum(orig_mask & (~recon_mask)) / orig_mask.size
+        
+        # Display as heatmap of difference
+        diff = np.abs(orig_mask.astype(float) - recon_mask.astype(float))
+        plt.imshow(diff, cmap="hot")
         plt.axis("off")
         
-        # Calculate individual scalar error for title
-        mse = np.mean((orig_img - recon_img)**2)
-        plt.title(f"Err: {mse:.4f}", fontsize=9)
-        if i == n // 2: 
-            plt.text(0.5, 1.15, "Difference Map", transform=plt.gca().transAxes, ha='center', fontsize=12)
-
-    plt.tight_layout()
-    
+        plt.title(f"Err = {error_val:.4f}", fontsize=9)
+        if i == n // 2:
+            plt.text(0.5, 1.15, "Difference Map (HSV-Red)", transform=plt.gca().transAxes, ha='center', fontsize=12)
+        plt.tight_layout()
+        
     if SAVE_FIG:
         os.makedirs("reconstruction", exist_ok=True)
         filename = f"reconstruction/{model_name.replace(' ','_')}_{subset_name}_reconstruction.png"
         plt.savefig(filename, dpi=300)
         print(f"Saved visualization to {filename}")
     plt.show()
+
+
+# ---------------------------------
+# 4. PLOTTING HISTOGRAMS & BOXPLOT
+# ---------------------------------
 
 def plot_error_comparison(benign_errors, malign_errors, model_name="AE"):
     """
@@ -236,11 +256,12 @@ def plot_error_comparison(benign_errors, malign_errors, model_name="AE"):
         plt.savefig(filename, dpi=300)
         print(f"Saved error comparison to {filename}")
     plt.show()
-
+    
 # ----------------------------
-# MAIN
+# 5. MAIN
+# ----------------------------
 def main():
-    model = load_model(config_id="4", model_path=MODEL_PATH, model_name=MODEL_NAME)
+    model = load_model(config_id="3", model_path=MODEL_PATH, model_name=MODEL_NAME)
 
     dataset_benign = HelicoAnnotated(only_negative=True, load_ram=False)
     dataset_malign = HelicoAnnotated(only_positive=True, load_ram=False) 
@@ -270,8 +291,8 @@ def main():
     )
 
     print("\nCalculating Full Dataset Statistics...")
-    benign_errors = get_reconstruction_errors(dataloader_benign, model, model_name=MODEL_NAME, metric="red")
-    malign_errors = get_reconstruction_errors(dataloader_malign, model, model_name=MODEL_NAME, metric="red")
+    benign_errors = get_reconstruction_errors(dataloader_benign, model, model_name=MODEL_NAME, metric="hsv_red")
+    malign_errors = get_reconstruction_errors(dataloader_malign, model, model_name=MODEL_NAME, metric="hsv_red")
 
     plot_error_comparison(benign_errors, malign_errors, model_name=MODEL_NAME)
 
