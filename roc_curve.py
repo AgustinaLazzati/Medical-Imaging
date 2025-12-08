@@ -6,6 +6,8 @@ import numpy as np
 import os
 from sklearn.metrics import roc_curve, auc
 import cv2  
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
 
 # Custom imports
 from dataset import HelicoAnnotated, annotated_collate
@@ -18,11 +20,10 @@ from train_conv_vae import VAEConfigs
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth" # Adjust if needed
-BATCH_SIZE = 16
+BATCH_SIZE = 128   #16
 MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 
 # ROC Configuration
-NUM_THRESHOLDS = 50  # Increased from 20 to 50 for a smoother curve
 SAVE_FIG = True
 
 # ----------------------------
@@ -136,7 +137,7 @@ def main():
     loader_benign = DataLoader(dataset_benign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
     loader_malign = DataLoader(dataset_malign, batch_size=BATCH_SIZE, shuffle=False, collate_fn=annotated_collate)
 
-    METRIC = 'red'
+    METRIC = 'hsv_red'
 
     # B. Get Error Distributions
     print("Calculating Benign Errors...")
@@ -164,8 +165,12 @@ def main():
     plt.figure(figsize=(8, 6))
     plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC={roc_auc:.4f})')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')  # Random guess line
-    plt.scatter(best_fpr, best_tpr, color='red', label='Optimal Point', zorder=5)
-
+    plt.scatter(best_fpr, best_tpr, color='red', label=f'Optimal Point (Optimal Thresh={best_threshold:.6f})', zorder=5)
+    
+    plt.text(best_fpr + 0.02, best_tpr - 0.04,
+         f"({best_fpr:.3f}, {best_tpr:.3f})",
+         fontsize=9,)
+         
     plt.xlim([0.0, 1.0])
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate (1 - Specificity)')
@@ -181,6 +186,41 @@ def main():
         print(f"Plot saved to {save_path}")
 
     plt.show()
+    
+    
+    # Convert scores into binary predictions
+    y_true = np.concatenate([np.zeros_like(benign_err), np.ones_like(malign_err)])
+    y_scores = np.concatenate([benign_err, malign_err])
+    y_pred = (y_scores >= best_threshold).astype(int)
+    
+    # Confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    tn, fp, fn, tp = cm.ravel()
+    
+    print("\n--- CONFUSION MATRIX ---")
+    print(cm)
+    print(f"TN={tn}, FP={fp}, FN={fn}, TP={tp}")
+    
+    # Derived metrics
+    precision = tp / (tp + fp + 1e-8)
+    recall = tp / (tp + fn + 1e-8)
+    f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+    accuracy = (tp + tn) / (tn + fp + fn + tp)
+    
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall (TPR): {recall:.4f}")
+    print(f"F1 Score: {f1:.4f}")
+    print(f"Accuracy: {accuracy:.4f}")
+    
+    plt.figure(figsize=(6,5))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues",
+                xticklabels=['Benign', 'Malignant'],
+                yticklabels=['Benign', 'Malignant'])
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix (Patch Level)")
+    plt.show()
+    
 
 if __name__ == "__main__":
     main()

@@ -142,7 +142,7 @@ class HelicoPatients(Dataset):
         labels = data["DENSITAT"].astype(str).to_numpy()
         self.id_to_label = dict(zip(patient_ids, labels))
 
-        images_path = os.path.join(DEFAULT_PATH, "CrossValidation", "Cropped")
+        images_path = os.path.join(DEFAULT_PATH, "CrossValidation", "Cropped")   #HoldOut
         images_subfolders = os.listdir(images_path)
 
         patient_groups = {}
@@ -253,6 +253,14 @@ class HelicoAnnotated(Dataset):
                 image = delete_alpha_channel(image)
 
                 self.ram_data.append((image, label, pid))
+                
+    #FOR CROSSVALIDATION SIMPLICITY
+    def get_labels(self):
+        return np.array([1 if l == 1 else 0 for (_, l, _) in self.samples])
+
+    def get_groups(self):
+        return np.array([pid for (_, _, pid) in self.samples])
+
 
     def __getitem__(self, index) -> Any:
         if self.load_ram:
