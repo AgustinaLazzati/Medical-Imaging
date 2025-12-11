@@ -19,7 +19,7 @@ from train_conv_vae import VAEConfigs
 # CONFIGURATION
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_one.pth"  # adjust if needed
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"  # adjust if needed
 #MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_2.pth"
 BATCH_SIZE = 128
 MODEL_NAME = "Autoencoder"  # "Autoencoder" or "Variational Autoencoder"
@@ -257,7 +257,7 @@ def main():
     # LOAD MODEL
     # ---------------------------------------------------
     model = load_model(
-        config_id="1",
+        config_id="3",
         model_path=MODEL_PATH,
         model_name=MODEL_NAME
     )
@@ -321,7 +321,7 @@ def main():
         plt.plot(fpr_g, tpr_g, color='darkorange', lw=2, label=f"AUC={auc_g:.4f}")
         plt.plot([0, 1], [0, 1], "k--", lw=1)
         plt.scatter(fpr_g[best_i], tpr_g[best_i], color="red",
-                    label=f"Youden Th={best_thr_global:.6f}")
+                    label=f"Optimal Th={best_thr_global:.6f}")
                     
         plt.text(fpr_g[best_i] + 0.02, tpr_g[best_i] - 0.04,
          f"({fpr_g[best_i]:.3f}, {tpr_g[best_i]:.3f})",
@@ -329,12 +329,12 @@ def main():
 
         plt.xlabel("FPR")
         plt.ylabel("TPR")
-        plt.title(f"Global ROC – {MODEL_NAME} conf1 - {METRIC} ERROR")
+        plt.title(f"Global ROC – {MODEL_NAME} conf3 - {METRIC} ERROR")
         plt.grid(alpha=0.3)
         plt.legend()
 
         if SAVE_FIG:
-            out = os.path.join(RESULTS_DIR, f"ROC_GLOBAL_{MODEL_NAME}_conf1_{METRIC}.png")
+            out = os.path.join(RESULTS_DIR, f"ROC_GLOBAL_{MODEL_NAME}_conf3_{METRIC}.png")
             plt.savefig(out, dpi=300)
             print(f"Saved: {out}")
         plt.close()
@@ -375,7 +375,7 @@ def main():
     # ---------------------------------------------------
     if len(predictions) > 0:
         dfp = pd.DataFrame(predictions)
-        csv_path = os.path.join(RESULTS_DIR, f"patch_level_predictions_{MODEL_NAME}_conf1_{METRIC}.csv")
+        csv_path = os.path.join(RESULTS_DIR, f"patch_level_predictions_{MODEL_NAME}_conf3_{METRIC}.csv")
         dfp.to_csv(csv_path, index=False)
         print(f"\nSaved predictions to {csv_path}")
 
@@ -392,15 +392,16 @@ def main():
     plt.plot([0, 1], [0, 1], "k--")
     plt.xlabel("FPR")
     plt.ylabel("TPR")
-    plt.title(f"Per-fold ROC – {MODEL_NAME} conf1 - {METRIC} ERROR")
+    plt.title(f"Per-fold ROC – {MODEL_NAME} conf3 - {METRIC} ERROR")
     plt.grid(alpha=0.3)
     plt.legend(fontsize="small")
 
     if SAVE_FIG:
-        out = os.path.join(RESULTS_DIR, f"ROC_FOLDS_{MODEL_NAME.replace(' ', '_')}_conf1_{METRIC.replace(' ', '_')}.png")
+        out = os.path.join(RESULTS_DIR, f"ROC_FOLDS_{MODEL_NAME.replace(' ', '_')}_conf3_{METRIC.replace(' ', '_')}.png")
         plt.savefig(out, dpi=300)
         print(f"Saved: {out}")
     plt.close()
+    
 
     print("\nDONE.")
 

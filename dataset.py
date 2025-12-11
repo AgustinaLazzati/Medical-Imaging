@@ -316,3 +316,64 @@ class HelicoMixed(Dataset):
 if __name__ == "__main__":
     dataset = HelicoPatients()
     print(dataset[1])
+    
+    
+class HelicoPatientsHoldout(Dataset):
+    def __init__(self):
+        super().__init__()
+        xlsx_path = os.path.join(DEFAULT_PATH, "PatientDiagnosis.csv")
+        data = pd.read_csv(xlsx_path)
+
+        patient_ids = data["CODI"].astype(str).to_numpy()
+        labels = data["DENSITAT"].astype(str).to_numpy()
+        self.id_to_label = dict(zip(patient_ids, labels))
+
+        images_path = os.path.join(DEFAULT_PATH, "HoldOut")   #HoldOut
+        images_subfolders = os.listdir(images_path)
+
+        patient_groups = {}
+
+        for subfolder in images_subfolders:
+            patient_id = subfolder.split("_")[0]
+
+            if patient_id in self.id_to_label:
+                if patient_id not in patient_groups:
+                    patient_groups[patient_id] = []
+
+                subfolder_path = os.path.join(images_path, subfolder)
+                image_filenames = os.listdir(subfolder_path)
+
+                for img_name in image_filenames:
+                    if img_name.lower().endswith('.png'):
+                        full_path = os.path.join(subfolder_path, img_name)
+                        patient_groups[patient_id].append(full_path)
+        self.samples = []
+        for pid, paths in patient_groups.items():
+            if len(paths) > 0:
+                label = self.id_to_label[pid]
+                self.samples.append((pid, label, paths))
+
+        self.transform = transforms.Compose([
+            transforms.Resize((256, 256)),      
+
+            # does several stuff:
+            # - [0, 255] -> [0, 1]
+            # - (H x W x C) -> (C x H x W) 
+            transforms.ToTensor(),
+        ])            
+
+    def __getitem__(self, index) -> Any:
+        pid, label, paths = self.samples[index]
+
+        img_tensors = []
+        for p in paths:
+            img = Image.open(p).convert("RGB")
+            img = self.transform(img)
+            img_tensors.append(img)
+
+        images = torch.stack(img_tensors)
+
+        return {"images": images, "label": label, "p_id": pid}
+
+    def __len__(self) -> int:
+        return len(self.samples)

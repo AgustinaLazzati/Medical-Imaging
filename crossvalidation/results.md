@@ -1,54 +1,50 @@
 # AUTOENCODER ------------------------------------
+## CONF 3
 ### RED HSV CHANNEL ERROR, 10 KFOLDS. ------------
-Total number of samples: 2695
-Total samples in dataset: 2695
-Benign patches: 1216
-Malignant patches: 1475
-
 Computing GLOBAL ROC...
-GLOBAL AUC=0.9654 | Best threshold=0.000473
-Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Autoen
+GLOBAL AUC=0.9654 | Best threshold=0.000473022461
+Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Autoencoder_conf3_hsv_red.png
 
 Running PATIENT-STRATIFIED K-FOLD CV...
 
 ===== FOLD 1 / 10 =====
-AUC(TRAIN)=0.9569 | Th=0.000473
+AUC(TRAIN)=0.9569 | Th=0.000473022461
 Prec=0.8556 Recall=1.0000 F1=0.9222
 
 ===== FOLD 2 / 10 =====
-AUC(TRAIN)=0.9661 | Th=0.000473
+AUC(TRAIN)=0.9661 | Th=0.000473022461
 Prec=0.9933 Recall=0.9198 F1=0.9551
 
 ===== FOLD 3 / 10 =====
-AUC(TRAIN)=0.9667 | Th=0.000473
+AUC(TRAIN)=0.9667 | Th=0.000473022461
 Prec=0.8514 Recall=1.0000 F1=0.9197
 
 ===== FOLD 4 / 10 =====
-AUC(TRAIN)=0.9632 | Th=0.000473
+AUC(TRAIN)=0.9632 | Th=0.000473022461
 Prec=0.9474 Recall=1.0000 F1=0.9730
 
 ===== FOLD 5 / 10 =====
-AUC(TRAIN)=0.9665 | Th=0.000473
+AUC(TRAIN)=0.9665 | Th=0.000473022461
 Prec=0.7941 Recall=1.0000 F1=0.8852
 
 ===== FOLD 6 / 10 =====
-AUC(TRAIN)=0.9620 | Th=0.000534
+AUC(TRAIN)=0.9620 | Th=0.000534057617
 Prec=0.9741 Recall=0.9427 F1=0.9581
 
 ===== FOLD 7 / 10 =====
-AUC(TRAIN)=0.9669 | Th=0.000595
+AUC(TRAIN)=0.9669 | Th=0.000595092773
 Prec=0.9852 Recall=0.9009 F1=0.9412
 
 ===== FOLD 8 / 10 =====
-AUC(TRAIN)=0.9655 | Th=0.000473
+AUC(TRAIN)=0.9655 | Th=0.000473022461
 Prec=0.9298 Recall=0.9815 F1=0.9550
 
 ===== FOLD 9 / 10 =====
-AUC(TRAIN)=0.9748 | Th=0.000473
+AUC(TRAIN)=0.9748 | Th=0.000473022461
 Prec=0.8427 Recall=0.9804 F1=0.9063
 
 ===== FOLD 10 / 10 =====
-AUC(TRAIN)=0.9652 | Th=0.000473
+AUC(TRAIN)=0.9652 | Th=0.000473022461
 Prec=0.9726 Recall=0.8765 F1=0.9221
 
 ===============================
@@ -58,6 +54,7 @@ Precision : 0.9146 ± 0.0682
 Recall    : 0.9602 ± 0.0443
 F1-score  : 0.9338 ± 0.0258
 AUC (test): 0.9654 ± 0.0043
+Optimal Threshold: 0.000491333008 ± 0.000039081569
 
 ### MSE CHANNEL ERROR, 10 KFOLDS. ------------
 
@@ -170,3 +167,230 @@ Recall    : 0.6455 ± 0.3827
 F1-score  : 0.5406 ± 0.2893
 AUC (test): 0.6577 ± 0.0157
 Optimal Threshold: 0.006853827694 ± 0.001635013292
+
+## CONF 2
+Computing GLOBAL ROC...
+GLOBAL AUC=0.9671 | Best threshold=0.000579833984
+Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Autoencoder_conf2_hsv_red.png
+
+Running PATIENT-STRATIFIED K-FOLD CV...
+
+===== FOLD 1 / 10 =====
+AUC(TRAIN)=0.9585 | Th=0.000473022461
+Prec=0.8533 Recall=1.0000 F1=0.9209
+
+===== FOLD 2 / 10 =====
+AUC(TRAIN)=0.9679 | Th=0.000579833984
+Prec=0.9932 Recall=0.9074 F1=0.9484
+
+===== FOLD 3 / 10 =====
+AUC(TRAIN)=0.9682 | Th=0.000579833984
+Prec=0.8514 Recall=1.0000 F1=0.9197
+
+===== FOLD 4 / 10 =====
+AUC(TRAIN)=0.9650 | Th=0.000579833984
+Prec=0.9600 Recall=1.0000 F1=0.9796
+
+===== FOLD 5 / 10 =====
+AUC(TRAIN)=0.9681 | Th=0.000579833984
+Prec=0.7941 Recall=1.0000 F1=0.8852
+
+===== FOLD 6 / 10 =====
+AUC(TRAIN)=0.9640 | Th=0.000640869141
+Prec=0.9776 Recall=0.9391 F1=0.9580
+
+===== FOLD 7 / 10 =====
+AUC(TRAIN)=0.9685 | Th=0.000640869141
+Prec=0.9852 Recall=0.9009 F1=0.9412
+
+===== FOLD 8 / 10 =====
+AUC(TRAIN)=0.9671 | Th=0.000579833984
+Prec=0.9273 Recall=0.9444 F1=0.9358
+
+===== FOLD 9 / 10 =====
+AUC(TRAIN)=0.9763 | Th=0.000564575195
+Prec=0.8427 Recall=0.9804 F1=0.9063
+
+===== FOLD 10 / 10 =====
+AUC(TRAIN)=0.9669 | Th=0.000579833984
+Prec=0.9726 Recall=0.8765 F1=0.9221
+
+===============================
+ K-FOLD CROSS-VALIDATION SUMMARY
+===============================
+Precision : 0.9157 ± 0.0694
+Recall    : 0.9549 ± 0.0452
+F1-score  : 0.9317 ± 0.0255
+AUC (test): 0.9671 ± 0.0042
+Optimal Threshold: 0.000579833984 ± 0.000043694522
+
+## CONF 1
+Computing GLOBAL ROC...
+GLOBAL AUC=0.9670 | Best threshold=0.000579833984
+Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Autoencoder_conf1_hsv_red.png
+
+Running PATIENT-STRATIFIED K-FOLD CV...
+
+===== FOLD 1 / 10 =====
+AUC(TRAIN)=0.9584 | Th=0.000473022461
+Prec=0.8533 Recall=1.0000 F1=0.9209
+
+===== FOLD 2 / 10 =====
+AUC(TRAIN)=0.9678 | Th=0.000579833984
+Prec=0.9932 Recall=0.9012 F1=0.9450
+
+===== FOLD 3 / 10 =====
+AUC(TRAIN)=0.9681 | Th=0.000579833984
+Prec=0.8514 Recall=1.0000 F1=0.9197
+
+===== FOLD 4 / 10 =====
+AUC(TRAIN)=0.9649 | Th=0.000579833984
+Prec=0.9600 Recall=1.0000 F1=0.9796
+
+===== FOLD 5 / 10 =====
+AUC(TRAIN)=0.9681 | Th=0.000579833984
+Prec=0.7941 Recall=1.0000 F1=0.8852
+
+===== FOLD 6 / 10 =====
+AUC(TRAIN)=0.9639 | Th=0.000732421875
+Prec=0.9770 Recall=0.9140 F1=0.9444
+
+===== FOLD 7 / 10 =====
+AUC(TRAIN)=0.9685 | Th=0.000625610352
+Prec=0.9852 Recall=0.9009 F1=0.9412
+
+===== FOLD 8 / 10 =====
+AUC(TRAIN)=0.9671 | Th=0.000579833984
+Prec=0.9273 Recall=0.9444 F1=0.9358
+
+===== FOLD 9 / 10 =====
+AUC(TRAIN)=0.9762 | Th=0.000564575195
+Prec=0.8427 Recall=0.9804 F1=0.9063
+
+===== FOLD 10 / 10 =====
+AUC(TRAIN)=0.9668 | Th=0.000579833984
+Prec=0.9726 Recall=0.8765 F1=0.9221
+
+===============================
+ K-FOLD CROSS-VALIDATION SUMMARY
+===============================
+Precision : 0.9157 ± 0.0693
+Recall    : 0.9517 ± 0.0473
+F1-score  : 0.9300 ± 0.0242
+AUC (test): 0.9670 ± 0.0042
+Optimal Threshold: 0.000587463379 ± 0.000060363893
+
+# VARIATIONAL AUTOENCODER
+## CONF 3
+Computing GLOBAL ROC...
+GLOBAL AUC=0.9672 | Best threshold=0.000579833984
+Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Variational Autoencoder_conf3_hsv_red.png
+
+Running PATIENT-STRATIFIED K-FOLD CV...
+
+===== FOLD 1 / 10 =====
+AUC(TRAIN)=0.9586 | Th=0.000473022461
+Prec=0.8533 Recall=1.0000 F1=0.9209
+
+===== FOLD 2 / 10 =====
+AUC(TRAIN)=0.9680 | Th=0.000579833984
+Prec=0.9932 Recall=0.9074 F1=0.9484
+
+===== FOLD 3 / 10 =====
+AUC(TRAIN)=0.9683 | Th=0.000579833984
+Prec=0.8514 Recall=1.0000 F1=0.9197
+
+===== FOLD 4 / 10 =====
+AUC(TRAIN)=0.9651 | Th=0.000579833984
+Prec=0.9600 Recall=1.0000 F1=0.9796
+
+===== FOLD 5 / 10 =====
+AUC(TRAIN)=0.9682 | Th=0.000579833984
+Prec=0.7941 Recall=1.0000 F1=0.8852
+
+===== FOLD 6 / 10 =====
+AUC(TRAIN)=0.9641 | Th=0.000640869141
+Prec=0.9776 Recall=0.9391 F1=0.9580
+
+===== FOLD 7 / 10 =====
+AUC(TRAIN)=0.9686 | Th=0.000640869141
+Prec=0.9852 Recall=0.9009 F1=0.9412
+
+===== FOLD 8 / 10 =====
+AUC(TRAIN)=0.9672 | Th=0.000579833984
+Prec=0.9273 Recall=0.9444 F1=0.9358
+
+===== FOLD 9 / 10 =====
+AUC(TRAIN)=0.9764 | Th=0.000564575195
+Prec=0.8427 Recall=0.9804 F1=0.9063
+
+===== FOLD 10 / 10 =====
+AUC(TRAIN)=0.9670 | Th=0.000579833984
+Prec=0.9726 Recall=0.8765 F1=0.9221
+
+===============================
+ K-FOLD CROSS-VALIDATION SUMMARY
+===============================
+Precision : 0.9157 ± 0.0694
+Recall    : 0.9549 ± 0.0452
+F1-score  : 0.9317 ± 0.0255
+AUC (test): 0.9672 ± 0.0042
+Optimal Threshold: 0.000579833984 ± 0.000043694522
+
+## CONF 2
+Computing GLOBAL ROC...
+GLOBAL AUC=0.9672 | Best threshold=0.000579833984
+Saved: /fhome/vlia01/Medical-Imaging/crossvalidation/ROC_GLOBAL_Variational Autoencoder_conf2_hsv_red.png
+
+Running PATIENT-STRATIFIED K-FOLD CV...
+
+===== FOLD 1 / 10 =====
+AUC(TRAIN)=0.9586 | Th=0.000473022461
+Prec=0.8533 Recall=1.0000 F1=0.9209
+
+===== FOLD 2 / 10 =====
+AUC(TRAIN)=0.9680 | Th=0.000579833984
+Prec=0.9932 Recall=0.9074 F1=0.9484
+
+===== FOLD 3 / 10 =====
+AUC(TRAIN)=0.9683 | Th=0.000579833984
+Prec=0.8514 Recall=1.0000 F1=0.9197
+
+===== FOLD 4 / 10 =====
+AUC(TRAIN)=0.9651 | Th=0.000579833984
+Prec=0.9600 Recall=1.0000 F1=0.9796
+
+===== FOLD 5 / 10 =====
+AUC(TRAIN)=0.9682 | Th=0.000579833984
+Prec=0.7941 Recall=1.0000 F1=0.8852
+
+===== FOLD 6 / 10 =====
+AUC(TRAIN)=0.9641 | Th=0.000640869141
+Prec=0.9776 Recall=0.9391 F1=0.9580
+
+===== FOLD 7 / 10 =====
+AUC(TRAIN)=0.9686 | Th=0.000640869141
+Prec=0.9852 Recall=0.9009 F1=0.9412
+
+===== FOLD 8 / 10 =====
+AUC(TRAIN)=0.9672 | Th=0.000579833984
+Prec=0.9273 Recall=0.9444 F1=0.9358
+
+===== FOLD 9 / 10 =====
+AUC(TRAIN)=0.9764 | Th=0.000564575195
+Prec=0.8427 Recall=0.9804 F1=0.9063
+
+===== FOLD 10 / 10 =====
+AUC(TRAIN)=0.9670 | Th=0.000579833984
+Prec=0.9726 Recall=0.8765 F1=0.9221
+
+===============================
+ K-FOLD CROSS-VALIDATION SUMMARY
+===============================
+Precision : 0.9157 ± 0.0694
+Recall    : 0.9549 ± 0.0452
+F1-score  : 0.9317 ± 0.0255
+AUC (test): 0.9672 ± 0.0042
+Optimal Threshold: 0.000579833984 ± 0.000043694522
+
+
