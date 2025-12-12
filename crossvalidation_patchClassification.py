@@ -26,7 +26,7 @@ MODEL_NAME = "Autoencoder"  # "Autoencoder" or "Variational Autoencoder"
 K_FOLD = 10
 SAVE_FIG = True
 METRIC = 'hsv_red'    # 'hsv_red' or 'mae_red' or 'mse'
-RESULTS_DIR = "/fhome/vlia01/Medical-Imaging/crossvalidation"
+RESULTS_DIR = "/fhome/vlia01/Medical-Imaging/crossvalidationPATCH"
 os.makedirs(RESULTS_DIR, exist_ok=True)
 NUM_WORKERS = 4
 

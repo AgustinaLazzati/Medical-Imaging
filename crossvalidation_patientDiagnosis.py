@@ -20,13 +20,17 @@ import pandas as pd
 # CONFIGURATION
 # ----------------------------
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_3.pth"
 BATCH_SIZE = 128   #NEED TO ADJUST??
-MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
+MODEL_NAME = "Variational Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 SAVE_FIG = True
-K_FOLD = 3
-PATCH_THR = 0.000473   # patch-levelthreshold from previous ROC_CURVE.PY
+K_FOLD = 10
+PATCH_THR = 0.000580   # patch-levelthreshold from previous ROC_CURVE.PY
 max_patches= 10
+
+RESULTS_DIR = "/export/fhome/vlia01/Medical-Imaging/crossvalidationDIAGNOSIS"
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # ----------------------------
 # 1. LOAD MODEL
@@ -188,7 +192,9 @@ def kfold_patient_cv(model, dataset, k=K_FOLD, max_patches=32, num_workers=4):
     plt.title('Patient-level ROC Curve per Fold')
     plt.legend(loc='lower right')
     if SAVE_FIG:
-        plt.savefig("patient_roc_folds.png", dpi=300)
+        out_path = os.path.join(RESULTS_DIR, "VAE3_patient_roc_folds.png")
+        plt.savefig(out_path, dpi=300)
+        print(f"Saved ROC figure to: {out_path}")
     plt.show() # Note: This will only work in an interactive environment.
 
     # Summary
@@ -198,8 +204,9 @@ def kfold_patient_cv(model, dataset, k=K_FOLD, max_patches=32, num_workers=4):
     print(f"F1-score:  {np.mean(f1_list):.3f} ± {np.std(f1_list):.3f}")
 
     df_predictions = pd.DataFrame(all_predictions)
-    df_predictions.to_csv("crossvalidation/patient_predictions.csv", index=False)
-
+    csv_path = os.path.join(RESULTS_DIR, "VAE3_patient_predictions.csv")
+    df_predictions.to_csv(csv_path, index=False)
+    print(f"Saved patient predictions to: {csv_path}")
     return precision_list, recall_list, f1_list, df_predictions
     
 # ----------------------------
@@ -213,7 +220,7 @@ def main():
     patient_dataset = HelicoPatients()
     print(f"Loaded patient dataset with {len(patient_dataset)} patients.")
     precision_list, recall_list, f1_list, df_predictions = kfold_patient_cv(model, patient_dataset, k=K_FOLD, max_patches=32)
-    print("All patient predictions saved to crossvalidation/patient_predictions.csv")
+    print("All patient predictions saved to crossvalidationDIAGNOSIS/patient_predictions.csv")
     
     
     

@@ -24,11 +24,12 @@ from train_conv_vae import VAEConfigs
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 PROJECT_DIR = "/fhome/vlia01/Medical-Imaging"
 RESULTS_DIR = os.path.join(PROJECT_DIR, "results")
-MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+#MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/config_three.pth"
+MODEL_PATH = "/fhome/vlia01/Medical-Imaging/slurm_output/vae_3.pth"
 BATCH_SIZE = 264   
-MODEL_NAME = "Autoencoder" # "Autoencoder" or "Variational Autoencoder"
+MODEL_NAME = "Variational Autoencoder" # "Autoencoder" or "Variational Autoencoder"
 SAVE_FIG = True
-PATCH_THR = 0.000473   # patch-levelthreshold from previous ROC_CURVE.PY
+PATCH_THR = 0.0005780   #0.000491333008   # patch-levelthreshold from MEAN OF AUTOENCODER CONFIG 3
 MAX_PATCHES= 300
 NUM_WORKERS = 4
 
@@ -193,13 +194,13 @@ def main():
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate (1 - Specificity)')
     plt.ylabel('True Positive Rate (Sensitivity)')
-    plt.title(f'ROC Curve PATIENT LEVEL (Cropped) - {MODEL_NAME} Conf3')
+    plt.title(f'ROC Curve PATIENT LEVEL - {MODEL_NAME} Conf3')
     plt.legend(loc="lower right")
     plt.grid(alpha=0.3)
 
     if SAVE_FIG:
         os.makedirs(RESULTS_DIR, exist_ok=True)
-        save_path = os.path.join(RESULTS_DIR, f"ROC_PATIENT_LEVEL_(Cropped){MODEL_NAME.replace(' ', '_')}.png")
+        save_path = os.path.join(RESULTS_DIR, f"ROC_PATIENT_LEVEL_{MODEL_NAME.replace(' ', '_')}(globalTHR).png")
         plt.savefig(save_path, dpi=300)
         print(f"ROC curve saved to: {save_path}")
 
@@ -230,7 +231,7 @@ def main():
 
     plt.figure(figsize=(5, 4))
     plt.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
-    plt.title("Confusion Matrix Patient Diagnosis (Cropped)")
+    plt.title("Confusion Matrix Patient Diagnosis")
     plt.colorbar()
 
     tick_marks = np.arange(2)
@@ -253,7 +254,7 @@ def main():
     plt.tight_layout()
 
     if SAVE_FIG:
-        cm_path = os.path.join(RESULTS_DIR, "patient_diagnosis_confmatrx_Cropped.png")
+        cm_path = os.path.join(RESULTS_DIR, "patient_diagnosis_VAE(globalTHR).png")
         plt.savefig(cm_path, dpi=300)
         print(f"Confusion matrix saved to: {cm_path}")
 
@@ -268,7 +269,7 @@ def main():
         "label": labels
     })
 
-    csv_path = os.path.join(RESULTS_DIR, "patient_predictions_diagnosis_Cropped.csv")
+    csv_path = os.path.join(RESULTS_DIR, "patient_predictions_diagnosis_VAE(globalTHR).csv")
     df.to_csv(csv_path, index=False)
     print(f"Saved predictions to {csv_path}")
     
