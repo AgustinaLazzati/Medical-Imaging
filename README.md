@@ -66,7 +66,7 @@ Three reconstruction error definitions were evaluated:
 - Mean Absolute Error on the Red Channel
 - **HSV-based Red Pixel Reconstruction Error (selected)**
 
-<img width="915" height="297" alt="reconstruction" src="https://github.com/user-attachments/assets/92e9caa2-266c-451d-9505-2e35c4cf10bb" />
+![reconstruction (1)](https://github.com/user-attachments/assets/10acd761-3d27-4fdf-9acf-54467862e6d9)
 
 The HSV-based metric explicitly captures biologically relevant red staining and achieved the best
 performance across all experiments.
